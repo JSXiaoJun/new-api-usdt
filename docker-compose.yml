@@ -1,0 +1,16 @@
+services:
+  usdt-scanner:
+    build: .
+    image: new-api-usdt:latest
+    container_name: usdt-scanner
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    # The health endpoint is for the container itself; nothing needs to reach
+    # this service from outside, so no port is published.
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
