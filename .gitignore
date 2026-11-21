@@ -2,3 +2,7 @@
 data/
 contracts/node_modules/
 *.exe
+dist/
+*.tar.gz
+
+deploy-kit/
