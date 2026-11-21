@@ -36,8 +36,10 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          # metadata-action 会自动把仓库名转小写。
-          images: ghcr.io/${{ github.repository }}
+          # 必须写死小写：Docker 的镜像名规范不接受大写，而 ${{ github.repository }}
+          # 在用户名含大写时会保留大小写，导致 GHCR 存成 JSXiaoJun/... 无法被
+          # `docker pull` 引用（token 作用域大小写不匹配，回 403 denied）。
+          images: ghcr.io/jsxiojun/new-api-usdt
           tags: |
             type=ref,event=branch
             type=ref,event=tag

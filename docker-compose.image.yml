@@ -1,6 +1,7 @@
 services:
   usdt-scanner:
     # 直接拉 GitHub 上 CI 构建好的镜像，服务器不需要源码、不需要 Go。
+    # 注意必须全小写（Docker 的镜像名规范）。
     image: ghcr.io/jsxiojun/new-api-usdt:latest
     container_name: usdt-scanner
     restart: unless-stopped
