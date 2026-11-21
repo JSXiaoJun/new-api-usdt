@@ -36,10 +36,12 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          # 必须写死小写：Docker 的镜像名规范不接受大写，而 ${{ github.repository }}
-          # 在用户名含大写时会保留大小写，导致 GHCR 存成 JSXiaoJun/... 无法被
-          # `docker pull` 引用（token 作用域大小写不匹配，回 403 denied）。
-          images: ghcr.io/jsxiojun/new-api-usdt
+          # 坑：GitHub 用户名含大写（JSXiaoJun）时，GHCR 把包存在
+          # ghcr.io/JSXiaoJun/new-api-usdt 下，而 Docker 的镜像名规范只允许小写，
+          # 写死小写去推送又会报 `not_found: owner not found`。
+          # 结论：这个账号的 GHCR 镜像无法被 `docker pull` 引用，部署请用
+          # Release 里的部署包（见 README），镜像仅作归档。
+          images: ghcr.io/${{ github.repository }}
           tags: |
             type=ref,event=branch
             type=ref,event=tag

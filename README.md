@@ -41,18 +41,27 @@ new-api 的 USDT 收款组件：每个用户每条网络一个**永久专属地�
 
 两种方式，任选一种。
 
-**方式一：直接拉 CI 构建好的镜像**（不用源码、不用 Go；镜像由 GitHub Actions 从本仓库源码构建，amd64 + arm64）：
+**方式一：用 Release 里的部署包**（不用源码、不用 Go，服务器只要能连 github.com）：
 
 ```bash
 mkdir -p /opt/usdt-scanner && cd /opt/usdt-scanner
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/docker-compose.image.yml
-curl -fsSL -o .env.example     https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/.env.example
+VERSION=v0.1.0
+curl -fL -o /tmp/kit.tar.gz "https://github.com/JSXiaoJun/new-api-usdt/releases/download/$VERSION/new-api-usdt-kit-linux-amd64.tar.gz"
+tar -xzf /tmp/kit.tar.gz -C /opt/usdt-scanner
 cp .env.example .env
-docker pull ghcr.io/jsxiojun/new-api-usdt:latest
+curl -fsSL -o update.sh https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/update.sh
 ```
 
-> `pull` 报 `unauthorized` 说明镜像包还没设为公开：GitHub → 头像 → Packages → `new-api-usdt` → Package settings → Change visibility → Public。
-> 服务器连不上 `ghcr.io`（国内机常见）就用方式二，或改用仓库 Release 里的部署包。
+以后更新/回滚只要一条命令：
+
+```bash
+bash update.sh              # 最新 Release
+bash update.sh v0.1.1       # 指定版本
+```
+
+> 关于镜像：CI 每次提交都会构建 `ghcr.io/JSXiaoJun/new-api-usdt`（amd64 + arm64），但本仓库的用户名含大写，
+> GHCR 只认 `JSXiaoJun/...`、Docker 的镜像名只允许小写，两边冲突，`docker pull` 无法引用。
+> 所以部署请用 Release 部署包，镜像仅作归档。
 
 **方式二：服务器本地构建**：
 

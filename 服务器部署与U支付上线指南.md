@@ -101,8 +101,8 @@ curl -s -o /dev/null -w 'usdt-api   %{http_code}\n' -m 10 "$DOMAIN/api/usdt/scan
 | `usdt-api` 返回 **401 / 403** | 接口存在，只是没带签名（正常） | 继续 |
 | `usdt-api` 返回 **404** | 这个 new-api 没有 U 支付接口 | 先别部署，告诉我，得先补 new-api |
 | github / dockerhub / goproxy 都通 | 服务器能自己构建 | **方案 A**（见下一节） |
-| 只通 github、连不上 dockerhub | 拉不了镜像仓库 | **方案 C**（拉 GHCR 镜像）或方案 B |
-| 有超时/000 | 网络受限（国内机常见） | **方案 B**：用部署包 |
+| 只通 github、连不上 dockerhub | 拉不了 Go 镜像 | **方案 C**（Release 直下）或方案 B |
+| 有超时/000 | 网络受限（国内机常见） | **方案 B**：本地上传部署包 |
 
 顺便确认时间同步（签名有效期只有 5 分钟，时钟偏了会全部 401）：
 
@@ -126,7 +126,7 @@ cp .env.example .env
 docker compose build          # 拉 golang 镜像 + 下依赖，约 2~5 分钟
 ```
 
-### 方案 B：用部署包（推荐，最省事）
+### 方案 B：本地上传部署包（服务器连不上 GitHub 时用）
 
 1. 把 `new-api-usdt-kit-linux-amd64.tar.gz`（≈9.4 MB）下载到本地；
 2. 宝塔 → 文件 → 上传到 `/opt/`；
@@ -143,28 +143,31 @@ ls -l /opt/usdt-scanner
 > 部署包里 `bin/usdt-scanner`、`bin/usdt-deploy` 已经编译好，只需要能拉到 `alpine:3.21` 基础镜像（约 8 MB）。
 > 如果连 alpine 都拉不下来：`docker pull alpine:3.21` 换宝塔 Docker 里的镜像加速，或者改用第 12 节「不用 Docker 直接跑二进制」。
 
-### 方案 C：直接拉 GitHub 上构建好的镜像（最省事，不传任何文件）
+### 方案 C：从 GitHub Release 直接下载（推荐，不用本地上传）
 
-镜像由 GitHub Actions 从这个仓库的源码自动构建（linux/amd64 + linux/arm64），每次提交、打 `v*` 标签都会更新：
+服务器能连 github.com 时，这一步代替方案 B 的“下载到本地再上传”：
 
 ```bash
 mkdir -p /opt/usdt-scanner && cd /opt/usdt-scanner
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/docker-compose.image.yml
-curl -fsSL -o .env.example     https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/.env.example
+curl -fL -o /tmp/kit.tar.gz https://github.com/JSXiaoJun/new-api-usdt/releases/download/v0.1.0/new-api-usdt-kit-linux-amd64.tar.gz
+tar -xzf /tmp/kit.tar.gz -C /opt/usdt-scanner
 cp .env.example .env
-nano .env                                  # 填 NEWAPI_URL / GAS_PRIVATE_KEY / RPC_*
-docker pull ghcr.io/jsxiojun/new-api-usdt:latest
-mkdir -p data && chown -R 10001:10001 data
-docker compose up -d
+curl -fsSL -o update.sh https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/update.sh
+chmod +x update.sh
 ```
 
-以后更新只要两行：`docker compose pull && docker compose up -d`。
-生成 Gas 钱包、部署合约的命令和方案 A/B 完全一样（镜像里同样带了 `usdt-deploy`）。
+以后更新/回滚一条命令：
 
-两个常见卡点：
+```bash
+bash update.sh              # 更新到最新 Release
+bash update.sh v0.1.1       # 指定版本 / 回滚
+```
 
-- `docker pull` 报 `unauthorized` / `denied`：镜像包还是私有的。GitHub → 你的头像 → **Packages** → `new-api-usdt` → **Package settings** → **Change visibility** → Public，改完再 pull。
-- `docker pull` 卡在解析 `ghcr.io`：这台服务器连不上 GitHub 的镜像仓库（国内机常见），直接用方案 B 的部署包，效果一样。
+`.env` 和 `data/` 不会被覆盖。
+
+> 关于 GitHub 镜像（GHCR）：CI 每次提交都会构建 `ghcr.io/JSXiaoJun/new-api-usdt`，但这个账号的用户名含大写，
+> GHCR 只认 `JSXiaoJun/...`、Docker 的镜像名只允许小写，`docker pull` 无法引用，所以**不要走镜像这条路**，用 Release 部署包。
+> 方案 B 和 C 拿到的是同一个包，区别只是 C 由服务器自己去下载。
 
 ---
 
