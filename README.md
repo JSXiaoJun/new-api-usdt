@@ -37,11 +37,27 @@ new-api 的 USDT 收款组件：每个用户每条网络一个**永久专属地�
 - BSC / Arbitrum / Polygon：Alchemy、QuickNode、Ankr、NodeReal、Infura 等任选两家。
 - TRON：TronGrid（`https://api.trongrid.io/jsonrpc`，申请免费 API Key）+ 另一家支持 TRON JSON-RPC 的服务商。
 
-## 三、在服务器上构建
+## 三、把程序放到服务器
 
-两种方式，任选一种。
+三种方式，任选一种。
 
-**方式一：用 Release 里的部署包**（不用源码、不用 Go，服务器只要能连 github.com）：
+**方式一：直接拉 CI 构建好的镜像**（最省事，不用源码、不用 Go）：
+
+```bash
+mkdir -p /opt/usdt-scanner && cd /opt/usdt-scanner
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/docker-compose.image.yml
+curl -fsSL -o .env.example     https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/.env.example
+cp .env.example .env
+docker compose pull
+```
+
+镜像：`ghcr.io/jsxiaojun/new-api-usdt:latest`（amd64 + arm64，每次提交自动构建）。
+更新：`docker compose pull && docker compose up -d`。
+
+> 镜像名必须全小写 `jsxiaojun`（用户名 `JSXiaoJun` 的小写形式）。写成 `JSXiaoJun` 或拼错都会 `denied`。
+> 首次拉取如果报 `unauthorized`：到 GitHub → Packages → `new-api-usdt` → Package settings 把它设为 Public。
+
+**方式二：用 Release 里的部署包**（服务器连不上 `ghcr.io` 时用，只要能连 github.com）：
 
 ```bash
 mkdir -p /opt/usdt-scanner && cd /opt/usdt-scanner
@@ -49,21 +65,16 @@ VERSION=v0.1.0
 curl -fL -o /tmp/kit.tar.gz "https://github.com/JSXiaoJun/new-api-usdt/releases/download/$VERSION/new-api-usdt-kit-linux-amd64.tar.gz"
 tar -xzf /tmp/kit.tar.gz -C /opt/usdt-scanner
 cp .env.example .env
-curl -fsSL -o update.sh https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/update.sh
 ```
 
-以后更新/回滚只要一条命令：
+以后更新/回滚只要一条命令（包里自带 `update.sh`）：
 
 ```bash
 bash update.sh              # 最新 Release
 bash update.sh v0.1.1       # 指定版本
 ```
 
-> 关于镜像：CI 每次提交都会构建 `ghcr.io/JSXiaoJun/new-api-usdt`（amd64 + arm64），但本仓库的用户名含大写，
-> GHCR 只认 `JSXiaoJun/...`、Docker 的镜像名只允许小写，两边冲突，`docker pull` 无法引用。
-> 所以部署请用 Release 部署包，镜像仅作归档。
-
-**方式二：服务器本地构建**：
+**方式三：服务器本地构建**：
 
 ```bash
 git clone <本仓库> new-api-usdt && cd new-api-usdt

@@ -143,31 +143,39 @@ ls -l /opt/usdt-scanner
 > 部署包里 `bin/usdt-scanner`、`bin/usdt-deploy` 已经编译好，只需要能拉到 `alpine:3.21` 基础镜像（约 8 MB）。
 > 如果连 alpine 都拉不下来：`docker pull alpine:3.21` 换宝塔 Docker 里的镜像加速，或者改用第 12 节「不用 Docker 直接跑二进制」。
 
-### 方案 C：从 GitHub Release 直接下载（推荐，不用本地上传）
-
-服务器能连 github.com 时，这一步代替方案 B 的“下载到本地再上传”：
+服务器能连 github.com 的话，**不用本地上传**，直接在服务器上下载同一个包：
 
 ```bash
 mkdir -p /opt/usdt-scanner && cd /opt/usdt-scanner
 curl -fL -o /tmp/kit.tar.gz https://github.com/JSXiaoJun/new-api-usdt/releases/download/v0.1.0/new-api-usdt-kit-linux-amd64.tar.gz
 tar -xzf /tmp/kit.tar.gz -C /opt/usdt-scanner
 cp .env.example .env
-curl -fsSL -o update.sh https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/update.sh
-chmod +x update.sh
 ```
 
-以后更新/回滚一条命令：
+包里有 `update.sh`，以后更新/回滚一条命令：`bash update.sh` 或 `bash update.sh v0.1.1`（`.env` 和 `data/` 不动）。
+
+### 方案 C：直接拉 GitHub 上构建好的镜像（最省事）
+
+镜像由 GitHub Actions 从本仓库源码自动构建（linux/amd64 + linux/arm64），每次提交、打 `v*` 标签都会更新。
+镜像名**必须全小写** `jsxiaojun`（用户名 `JSXiaoJun` 的小写形式）：
 
 ```bash
-bash update.sh              # 更新到最新 Release
-bash update.sh v0.1.1       # 指定版本 / 回滚
+mkdir -p /opt/usdt-scanner && cd /opt/usdt-scanner
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/docker-compose.image.yml
+curl -fsSL -o .env.example     https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/.env.example
+cp .env.example .env
+docker pull ghcr.io/jsxiaojun/new-api-usdt:v0.1.0
+mkdir -p data && chown -R 10001:10001 data
+docker compose up -d
 ```
 
-`.env` 和 `data/` 不会被覆盖。
+以后更新只要两行：`docker compose pull && docker compose up -d`。
+生成 Gas 钱包、部署合约的命令和方案 A/B 完全一样（镜像里同样带了 `usdt-deploy`）。
 
-> 关于 GitHub 镜像（GHCR）：CI 每次提交都会构建 `ghcr.io/JSXiaoJun/new-api-usdt`，但这个账号的用户名含大写，
-> GHCR 只认 `JSXiaoJun/...`、Docker 的镜像名只允许小写，`docker pull` 无法引用，所以**不要走镜像这条路**，用 Release 部署包。
-> 方案 B 和 C 拿到的是同一个包，区别只是 C 由服务器自己去下载。
+两个常见卡点：
+
+- `denied` / `unauthorized`：镜像名写错了（不能带大写，是 `jsxiaojun` 不是 `jsxiojun`），或包还是私有的——GitHub → Packages → `new-api-usdt` → Package settings → Change visibility → Public。
+- `docker pull` 卡在解析 `ghcr.io`：这台服务器连不上 GitHub 的镜像仓库（国内机常见），改用方案 B 的部署包，效果一样。
 
 ---
 
