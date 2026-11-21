@@ -39,6 +39,23 @@ new-api 的 USDT 收款组件：每个用户每条网络一个**永久专属地�
 
 ## 三、在服务器上构建
 
+两种方式，任选一种。
+
+**方式一：直接拉 CI 构建好的镜像**（不用源码、不用 Go；镜像由 GitHub Actions 从本仓库源码构建，amd64 + arm64）：
+
+```bash
+mkdir -p /opt/usdt-scanner && cd /opt/usdt-scanner
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/docker-compose.image.yml
+curl -fsSL -o .env.example     https://raw.githubusercontent.com/JSXiaoJun/new-api-usdt/main/.env.example
+cp .env.example .env
+docker pull ghcr.io/jsxiojun/new-api-usdt:latest
+```
+
+> `pull` 报 `unauthorized` 说明镜像包还没设为公开：GitHub → 头像 → Packages → `new-api-usdt` → Package settings → Change visibility → Public。
+> 服务器连不上 `ghcr.io`（国内机常见）就用方式二，或改用仓库 Release 里的部署包。
+
+**方式二：服务器本地构建**：
+
 ```bash
 git clone <本仓库> new-api-usdt && cd new-api-usdt
 cp .env.example .env
