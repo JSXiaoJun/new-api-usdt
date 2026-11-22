@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"new-api-usdt/internal/config"
 	"new-api-usdt/internal/notify"
 	"new-api-usdt/internal/store"
@@ -94,6 +96,44 @@ func TestSweepFailureStreakAlertsOnThirdError(t *testing.T) {
 	s.noteSweepResult(ctx, "polygon", err)
 	if len(sender.subjects) != 1 {
 		t.Fatalf("streak was not reset")
+	}
+}
+
+func TestDestinationVerdict(t *testing.T) {
+	d := decimal.RequireFromString
+	addr := "0xd6138334c54e655d037f17a54e88f9cd468ff0b0"
+	step := d("100")
+
+	cases := []struct {
+		name     string
+		prev     decimal.Decimal
+		hasPrev  bool
+		prevAddr string
+		cur      decimal.Decimal
+		want     string
+	}{
+		{"first observation", d("0"), false, "", d("2"), "init"},
+		{"small increase below step", d("2"), true, addr, d("50"), "none"},
+		{"crosses 100", d("95"), true, addr, d("105"), "milestone"},
+		{"crosses two steps at once", d("95"), true, addr, d("250"), "milestone"},
+		{"no movement", d("105"), true, addr, d("105"), "none"},
+		{"decrease", d("105"), true, addr, d("5"), "decrease"},
+		{"address changed", d("105"), true, "0xother", d("105"), "init"},
+	}
+	for _, c := range cases {
+		got, _ := destinationVerdict(c.prev, c.hasPrev, c.prevAddr, addr, c.cur, step)
+		if got != c.want {
+			t.Fatalf("%s: got %s want %s", c.name, got, c.want)
+		}
+	}
+}
+
+func TestDestinationVerdictDecreaseAmount(t *testing.T) {
+	addr := "0xd6138334c54e655d037f17a54e88f9cd468ff0b0"
+	_, amount := destinationVerdict(decimal.RequireFromString("105"), true, addr, addr,
+		decimal.RequireFromString("5"), decimal.RequireFromString("100"))
+	if amount.String() != "100" {
+		t.Fatalf("decrease amount = %s, want 100", amount)
 	}
 }
 

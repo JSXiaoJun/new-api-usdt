@@ -308,6 +308,16 @@ func (s *Service) dailySummary(ctx context.Context) error {
 		if pending, err := s.store.PendingSweeps(ctx, chainID); err == nil {
 			fmt.Fprintf(&b, "  待完成归集：%d\n", len(pending))
 		}
+		if remote, ok := s.remoteChain(chainID); ok && remote.Factory != "" {
+			if client := s.clients[chainID]; client != nil {
+				if dest, err := factoryDestination(ctx, client, remote.Factory); err == nil {
+					if raw, err := tokenBalance(ctx, client, remote.USDT, dest); err == nil {
+						amt := decimal.NewFromBigInt(raw, -remote.Decimals)
+						fmt.Fprintf(&b, "  收款地址 %s：%s USDT\n", shortAddr(dest), amt.StringFixed(2))
+					}
+				}
+			}
+		}
 	}
 	fmt.Fprintf(&b, "\n今日归集：%d 笔，合计 %s USDT", count, decimal.NewFromFloat(total).StringFixed(2))
 	subject := fmt.Sprintf("[USDT 日报] %s 归集 %d 笔", now.Format("2006-01-02"), count)

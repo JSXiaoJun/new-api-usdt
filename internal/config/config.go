@@ -54,6 +54,7 @@ type Config struct {
 	AlertCooldown       time.Duration
 	GasMin              map[string]float64 // native coin floor per chain
 	ExpectedDestination map[string]string  // lower-case destination we expect
+	DestinationStep     map[string]float64 // notify each time the balance crosses a multiple
 	DailyHour           int
 	DailyMinute         int
 }
@@ -149,6 +150,13 @@ func Load() (*Config, error) {
 		usdt.ChainTron:     20,
 	}
 	cfg.ExpectedDestination = map[string]string{}
+	// Default milestone for the collection wallet: every 100 USDT.
+	cfg.DestinationStep = map[string]float64{
+		usdt.ChainBSC:      100,
+		usdt.ChainPolygon:  100,
+		usdt.ChainArbitrum: 100,
+		usdt.ChainTron:     100,
+	}
 
 	if raw := env("GAS_PRIVATE_KEY", ""); raw != "" {
 		key, err := crypto.HexToECDSA(strings.TrimPrefix(raw, "0x"))
@@ -192,6 +200,13 @@ func Load() (*Config, error) {
 		}
 		if raw := env("ALERT_EXPECTED_DESTINATION_"+upper, ""); raw != "" {
 			cfg.ExpectedDestination[id] = strings.ToLower(strings.TrimSpace(raw))
+		}
+		if raw := env("ALERT_DESTINATION_STEP_"+upper, ""); raw != "" {
+			step, err := strconv.ParseFloat(raw, 64)
+			if err != nil || step < 0 {
+				return nil, fmt.Errorf("ALERT_DESTINATION_STEP_%s must be a non-negative number", upper)
+			}
+			cfg.DestinationStep[id] = step
 		}
 		if c.MaxRange == 0 {
 			c.MaxRange = 1

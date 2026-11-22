@@ -67,6 +67,12 @@ CREATE TABLE IF NOT EXISTS alerts (
 	key     TEXT PRIMARY KEY,
 	sent_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS dest_state (
+	chain      TEXT PRIMARY KEY,
+	address    TEXT NOT NULL,
+	balance    TEXT NOT NULL,
+	updated_at INTEGER NOT NULL
+);
 `
 
 func Open(dir string) (*Store, error) {
@@ -321,4 +327,36 @@ func (s *Store) SweepStatsSince(ctx context.Context, since time.Time) (int, floa
 		return 0, 0, err
 	}
 	return count, total.Float64, nil
+}
+
+// DestState is the last observed balance of the collection address.
+type DestState struct {
+	Address   string
+	Balance   string
+	UpdatedAt int64
+}
+
+// DestinationState returns the stored observation for a chain.
+func (s *Store) DestinationState(ctx context.Context, chain string) (DestState, bool, error) {
+	var st DestState
+	err := s.db.QueryRowContext(ctx,
+		`SELECT address, balance, updated_at FROM dest_state WHERE chain = ?`, chain).
+		Scan(&st.Address, &st.Balance, &st.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return DestState{}, false, nil
+	}
+	if err != nil {
+		return DestState{}, false, err
+	}
+	return st, true, nil
+}
+
+// SetDestinationState upserts the last observation for a chain.
+func (s *Store) SetDestinationState(ctx context.Context, chain string, st DestState) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO dest_state (chain, address, balance, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT (chain) DO UPDATE SET address = excluded.address,
+			balance = excluded.balance, updated_at = excluded.updated_at`,
+		chain, st.Address, st.Balance, now())
+	return err
 }
