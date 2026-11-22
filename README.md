@@ -111,6 +111,28 @@ docker compose run --rm -e DEPLOYER_PRIVATE_KEY=<部署钱包私钥> -e TRON_API
 - `factory address`：填到 new-api 后台；
 - `probe wallet ... (address formula verified)`：工具已经真实部署了一个探针钱包，证明这条链上地址公式正确。**如果这一步报错，不要在后台开启这条链。**
 
+## 四之二、维护：改收款地址 / 转移所有权
+
+用当前 **owner** 私钥签名，指令直接打到工厂合约（镜像 v0.1.1 起提供）：
+
+```bash
+# 改收款地址：以后归集的钱进新地址，工厂地址和用户地址都不变
+docker run --rm -e OWNER_PRIVATE_KEY --entrypoint usdt-deploy ghcr.io/jsxiaojun/new-api-usdt:v0.1.1 \
+  set-destination -chain polygon -rpc https://polygon-bor-rpc.publicnode.com \
+  -factory 0x工厂地址 -destination 0x新收款地址
+
+# 两步转移所有权：先由当前 owner 发起
+docker run --rm -e OWNER_PRIVATE_KEY --entrypoint usdt-deploy ghcr.io/jsxiaojun/new-api-usdt:v0.1.1 \
+  transfer-owner -chain polygon -rpc https://polygon-bor-rpc.publicnode.com \
+  -factory 0x工厂地址 -new-owner 0x新owner
+
+# 再由新 owner 接受（私钥换成新 owner 的）
+docker run --rm -e OWNER_PRIVATE_KEY --entrypoint usdt-deploy ghcr.io/jsxiaojun/new-api-usdt:v0.1.1 \
+  accept-ownership -chain polygon -rpc https://polygon-bor-rpc.publicnode.com -factory 0x工厂地址
+```
+
+不带 `OWNER_PRIVATE_KEY` 运行时只打印 `factory / owner / pendingOwner / destination`，不会发交易——先用它核对状态最安全。
+
 ## 五、配置 new-api
 
 后台 → 系统设置 → 计费 → **USDT Deposits**：

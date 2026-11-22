@@ -4,6 +4,9 @@
 //	usdt-deploy wallet                      (prints the address of DEPLOYER_PRIVATE_KEY or GAS_PRIVATE_KEY)
 //	usdt-deploy evm  -chain bsc -rpc URL -owner 0x.. -destination 0x..
 //	usdt-deploy tron -rpc https://api.trongrid.io/jsonrpc -api https://api.trongrid.io -owner T.. -destination T..
+//	usdt-deploy set-destination -chain polygon -rpc URL -factory 0x.. -destination 0x..   (OWNER_PRIVATE_KEY)
+//	usdt-deploy transfer-owner  -chain polygon -rpc URL -factory 0x.. -new-owner 0x..     (OWNER_PRIVATE_KEY)
+//	usdt-deploy accept-ownership -chain polygon -rpc URL -factory 0x..                    (NEW owner key)
 //
 // The deployer key only pays deployment fees; it never controls funds. The
 // owner (your cold or hardware wallet) is the only account that can change
@@ -58,6 +61,8 @@ func main() {
 		err = deployEVM(os.Args[2:])
 	case "tron":
 		err = deployTron(os.Args[2:])
+	case "set-destination", "transfer-owner", "accept-ownership":
+		err = factoryAdmin(os.Args[1], os.Args[2:])
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}
