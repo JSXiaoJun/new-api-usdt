@@ -63,6 +63,10 @@ CREATE TABLE IF NOT EXISTS sweeps (
 );
 CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits (status, next_at);
 CREATE INDEX IF NOT EXISTS idx_sweeps_status ON sweeps (chain, status);
+CREATE TABLE IF NOT EXISTS alerts (
+	key     TEXT PRIMARY KEY,
+	sent_at INTEGER NOT NULL
+);
 `
 
 func Open(dir string) (*Store, error) {
@@ -282,4 +286,39 @@ func (s *Store) PendingSweeps(ctx context.Context, chain string) ([]Sweep, error
 func (s *Store) FinishSweep(ctx context.Context, id int64, status, detail string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE sweeps SET status = ?, error = ?, updated_at = ? WHERE id = ?`, status, detail, now(), id)
 	return err
+}
+
+// LastAlert returns when the given alert key last fired.
+func (s *Store) LastAlert(ctx context.Context, key string) (time.Time, bool, error) {
+	var at int64
+	err := s.db.QueryRowContext(ctx, `SELECT sent_at FROM alerts WHERE key = ?`, key).Scan(&at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return time.Unix(at, 0), true, nil
+}
+
+// MarkAlert records that the alert key fired at the given time.
+func (s *Store) MarkAlert(ctx context.Context, key string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO alerts (key, sent_at) VALUES (?, ?)
+		ON CONFLICT (key) DO UPDATE SET sent_at = excluded.sent_at`, key, at.Unix())
+	return err
+}
+
+// SweepStatsSince counts finished sweeps and sums their amount since a time.
+func (s *Store) SweepStatsSince(ctx context.Context, since time.Time) (int, float64, error) {
+	var (
+		count int
+		total sql.NullFloat64
+	)
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*), SUM(CAST(amount AS REAL)) FROM sweeps WHERE created_at >= ?`,
+		since.Unix()).Scan(&count, &total)
+	if err != nil {
+		return 0, 0, err
+	}
+	return count, total.Float64, nil
 }

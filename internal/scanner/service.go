@@ -17,23 +17,25 @@ import (
 
 	"new-api-usdt/internal/config"
 	"new-api-usdt/internal/newapi"
+	"new-api-usdt/internal/notify"
 	"new-api-usdt/internal/rpc"
 	"new-api-usdt/internal/store"
 	"new-api-usdt/internal/sweep"
 	"new-api-usdt/internal/usdt"
 )
 
-const Version = "0.1.0"
+const Version = "0.1.2"
 
 // addressBatch keeps the topic filter inside every provider's limit (TRON
 // accepts at most 1000 options per topic).
 const addressBatch = 500
 
 type chainState struct {
-	mu        sync.Mutex
-	head      uint64
-	cursor    uint64
-	lastError string
+	mu         sync.Mutex
+	head       uint64
+	cursor     uint64
+	lastError  string
+	sweepFails int
 }
 
 func (c *chainState) setError(err error) {
@@ -52,6 +54,7 @@ type Service struct {
 	api     *newapi.Client
 	clients map[string]*rpc.Client
 	senders map[string]sweep.Sender
+	alerts  *notify.Manager
 
 	mu      sync.RWMutex
 	remote  map[string]newapi.Chain // chains new-api asks us to watch
@@ -65,6 +68,7 @@ func New(cfg *config.Config, st *store.Store) (*Service, error) {
 		clients: map[string]*rpc.Client{}, senders: map[string]sweep.Sender{},
 		remote: map[string]newapi.Chain{}, catchup: map[string][]store.Address{}, stats: map[string]*chainState{},
 	}
+	s.alerts = newAlertManager(cfg, st)
 	for id, c := range cfg.Chains {
 		headers := map[string]string{}
 		if id == usdt.ChainTron && cfg.TronAPIKey != "" {
@@ -121,13 +125,20 @@ func (s *Service) Run(ctx context.Context) {
 	wg.Go(func() { s.every(ctx, 30*time.Second, "sync", s.syncState) })
 	wg.Go(func() { s.every(ctx, 5*time.Second, "notify", s.notify) })
 	wg.Go(func() { s.every(ctx, time.Minute, "heartbeat", s.heartbeat) })
+	wg.Go(func() { s.every(ctx, time.Minute, "gas-alerts", s.checkGasAlerts) })
+	wg.Go(func() { s.every(ctx, time.Minute, "factory-events", s.watchFactoryEvents) })
+	wg.Go(func() { s.every(ctx, 30*time.Second, "daily-summary", s.dailySummary) })
 	for id := range s.clients {
 		wg.Go(func() {
 			s.every(ctx, s.cfg.PollInterval, "scan "+id, func(ctx context.Context) error { return s.scanChain(ctx, id) })
 		})
 		if s.senders[id] != nil {
 			wg.Go(func() {
-				s.every(ctx, 30*time.Second, "sweep "+id, func(ctx context.Context) error { return s.sweepChain(ctx, id) })
+				s.every(ctx, 30*time.Second, "sweep "+id, func(ctx context.Context) error {
+					err := s.sweepChain(ctx, id)
+					s.noteSweepResult(ctx, id, err)
+					return err
+				})
 			})
 		}
 	}
@@ -198,6 +209,17 @@ func (s *Service) remoteChain(id string) (newapi.Chain, bool) {
 	defer s.mu.RUnlock()
 	c, ok := s.remote[id]
 	return c, ok
+}
+
+// remoteChains snapshots the chains new-api currently asks us to watch.
+func (s *Service) remoteChains() map[string]newapi.Chain {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]newapi.Chain, len(s.remote))
+	for id, c := range s.remote {
+		out[id] = c
+	}
+	return out
 }
 
 // safeHead is the newest block new-api will accept as final.

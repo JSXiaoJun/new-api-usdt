@@ -43,6 +43,19 @@ type Config struct {
 	TronAPIKey   string
 	TronFeeLimit int64 // sun
 	ListenAddr   string
+
+	// Operator alerts. An empty SMTPHost disables email entirely.
+	SMTPHost            string
+	SMTPPort            int
+	SMTPUser            string
+	SMTPPass            string
+	MailFrom            string
+	MailTo              []string
+	AlertCooldown       time.Duration
+	GasMin              map[string]float64 // native coin floor per chain
+	ExpectedDestination map[string]string  // lower-case destination we expect
+	DailyHour           int
+	DailyMinute         int
 }
 
 func env(key, def string) string {
@@ -98,6 +111,45 @@ func Load() (*Config, error) {
 	}
 	cfg.TronFeeLimit = int64(feeLimit) * 1_000_000
 
+	// ---- operator alerts (email) ----
+	cfg.SMTPHost = env("SMTP_HOST", "")
+	port, err := envUint("SMTP_PORT", 465)
+	if err != nil {
+		return nil, err
+	}
+	cfg.SMTPPort = int(port)
+	cfg.SMTPUser = env("SMTP_USER", "")
+	cfg.SMTPPass = env("SMTP_PASS", "")
+	cfg.MailFrom = env("MAIL_FROM", cfg.SMTPUser)
+	for _, raw := range strings.Split(env("MAIL_TO", ""), ",") {
+		if addr := strings.TrimSpace(raw); addr != "" {
+			cfg.MailTo = append(cfg.MailTo, addr)
+		}
+	}
+	cooldown, err := envUint("ALERT_COOLDOWN_SECONDS", 21600)
+	if err != nil {
+		return nil, err
+	}
+	cfg.AlertCooldown = time.Duration(cooldown) * time.Second
+	hour, err := envUint("ALERT_DAILY_HOUR", 20)
+	if err != nil {
+		return nil, err
+	}
+	minute, err := envUint("ALERT_DAILY_MINUTE", 0)
+	if err != nil {
+		return nil, err
+	}
+	cfg.DailyHour, cfg.DailyMinute = int(hour), int(minute)
+	// Defaults sized to "a couple of sweeps' worth": Polygon 0.2, BSC 0.01,
+	// Arbitrum 0.0005, TRON 20.
+	cfg.GasMin = map[string]float64{
+		usdt.ChainBSC:      0.01,
+		usdt.ChainPolygon:  0.2,
+		usdt.ChainArbitrum: 0.0005,
+		usdt.ChainTron:     20,
+	}
+	cfg.ExpectedDestination = map[string]string{}
+
 	if raw := env("GAS_PRIVATE_KEY", ""); raw != "" {
 		key, err := crypto.HexToECDSA(strings.TrimPrefix(raw, "0x"))
 		if err != nil {
@@ -130,6 +182,16 @@ func Load() (*Config, error) {
 		}
 		if c.MaxGasPriceWei, err = envUint("MAX_GAS_PRICE_WEI_"+upper, c.MaxGasPriceWei); err != nil {
 			return nil, err
+		}
+		if raw := env("ALERT_GAS_MIN_"+upper, ""); raw != "" {
+			floor, err := strconv.ParseFloat(raw, 64)
+			if err != nil || floor < 0 {
+				return nil, fmt.Errorf("ALERT_GAS_MIN_%s must be a non-negative number", upper)
+			}
+			cfg.GasMin[id] = floor
+		}
+		if raw := env("ALERT_EXPECTED_DESTINATION_"+upper, ""); raw != "" {
+			cfg.ExpectedDestination[id] = strings.ToLower(strings.TrimSpace(raw))
 		}
 		if c.MaxRange == 0 {
 			c.MaxRange = 1

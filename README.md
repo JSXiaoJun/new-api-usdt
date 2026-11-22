@@ -164,6 +164,39 @@ docker compose logs -f usdt-scanner
 4. 等转发：后台 “Pending sweeps” 归零后，在区块浏览器确认 USDT 已到 destination。
 5. 用“已转账？用交易哈希查询到账”再提交一次同一笔哈希，应提示“已入账过”，余额不变。
 
+## 八、邮件告警（可选，推荐）
+
+在 `.env` 里加上（QQ / 163 用「授权码」当密码，不是登录密码）：
+
+```ini
+SMTP_HOST=smtp.qq.com
+SMTP_PORT=465
+SMTP_USER=you@qq.com
+SMTP_PASS=授权码
+MAIL_FROM=you@qq.com
+MAIL_TO=you@qq.com
+TZ=Asia/Shanghai
+ALERT_COOLDOWN_SECONDS=21600
+ALERT_EXPECTED_DESTINATION_POLYGON=0x你的收款地址
+```
+
+会监控：
+
+| 事件 | 说明 |
+|---|---|
+| Gas 钱包低于阈值 | 默认 Polygon 0.2、BSC 0.01、Arbitrum 0.0005、TRON 20；低于就发信，补够了再发一封“已恢复” |
+| `setDestination` 被调用 | 秒级邮件，带新旧地址 + 区块浏览器链接；新地址与 `ALERT_EXPECTED_DESTINATION_*` 不一致时标记“⚠️ 请立刻核实” |
+| 归集连续失败 3 次 | 常见原因是 Gas 不足 / RPC 异常 / gas 价超上限 |
+| 每日汇总 | 默认 20:00（按 `TZ`），含各链 Gas 余额、区块进度、待归集数、当天归集笔数与金额 |
+
+同一个告警按 key 在 `ALERT_COOLDOWN_SECONDS` 内只发一次，重启不会重复轰炸。没配 `SMTP_HOST` 时整个功能自动关闭，服务行为不变。
+
+测试发信：
+
+```bash
+docker compose run --rm --entrypoint usdt-notify usdt-scanner "测试邮件：部署完成"
+```
+
 ## 日常运维
 
 - **修改收款地址**：用 owner 钱包在区块浏览器（BscScan / Arbiscan / PolygonScan / TronScan）对工厂合约调用 `setDestination(新地址)`。扫链服务和 new-api 不需要改。
