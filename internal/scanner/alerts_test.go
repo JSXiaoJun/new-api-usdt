@@ -188,3 +188,27 @@ func TestGasVerdict(t *testing.T) {
 		}
 	}
 }
+func TestGasOutflowVerdict(t *testing.T) {
+	d := decimal.RequireFromString
+	cost := d("0.03")
+	cases := []struct {
+		name    string
+		prev    string
+		cur     string
+		sweeps  int
+		want    bool
+	}{
+		{"no change", "1.0", "1.0", 0, false},
+		{"balance grew", "1.0", "1.5", 0, false},
+		{"explained by one sweep", "1.0", "0.97", 1, false},
+		{"unexplained, no sweep", "1.0", "0.5", 0, true},
+		{"drained despite a sweep", "1.0", "0.5", 1, true},
+		{"two sweeps explained", "1.0", "0.94", 2, false},
+	}
+	for _, c := range cases {
+		got, delta := gasOutflowVerdict(d(c.prev), d(c.cur), c.sweeps, cost)
+		if got != c.want {
+			t.Fatalf("%s: got %v (delta %s), want %v", c.name, got, delta, c.want)
+		}
+	}
+}

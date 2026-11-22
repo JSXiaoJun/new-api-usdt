@@ -67,6 +67,11 @@ CREATE TABLE IF NOT EXISTS alerts (
 	key     TEXT PRIMARY KEY,
 	sent_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS gas_state (
+	chain      TEXT PRIMARY KEY,
+	balance    TEXT NOT NULL,
+	updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS dest_state (
 	chain      TEXT PRIMARY KEY,
 	address    TEXT NOT NULL,
@@ -359,4 +364,43 @@ func (s *Store) SetDestinationState(ctx context.Context, chain string, st DestSt
 			balance = excluded.balance, updated_at = excluded.updated_at`,
 		chain, st.Address, st.Balance, now())
 	return err
+}
+
+
+// GasState is the last observed native balance of a chain's gas wallet.
+type GasState struct {
+	Balance   string
+	UpdatedAt int64
+}
+
+// GasWalletState returns the stored gas-wallet observation for a chain.
+func (s *Store) GasWalletState(ctx context.Context, chain string) (GasState, bool, error) {
+	var st GasState
+	err := s.db.QueryRowContext(ctx,
+		`SELECT balance, updated_at FROM gas_state WHERE chain = ?`, chain).
+		Scan(&st.Balance, &st.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return GasState{}, false, nil
+	}
+	if err != nil {
+		return GasState{}, false, err
+	}
+	return st, true, nil
+}
+
+// SetGasWalletState upserts the last gas-wallet observation for a chain.
+func (s *Store) SetGasWalletState(ctx context.Context, chain string, st GasState) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO gas_state (chain, balance, updated_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT (chain) DO UPDATE SET balance = excluded.balance, updated_at = excluded.updated_at`,
+		chain, st.Balance, now())
+	return err
+}
+
+// SweepCountSince counts sweeps this scanner sent since a unix timestamp.
+func (s *Store) SweepCountSince(ctx context.Context, chain string, since int64) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sweeps WHERE chain = ? AND created_at >= ?`, chain, since).Scan(&n)
+	return n, err
 }

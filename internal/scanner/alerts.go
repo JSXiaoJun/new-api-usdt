@@ -98,6 +98,7 @@ func (s *Service) checkGasAlerts(ctx context.Context) error {
 			continue
 		}
 		cost := decimal.NewFromFloat(s.cfg.SweepCost[chainID])
+		s.detectGasOutflow(ctx, chainID, local, bal, cost)
 		limit := int(s.cfg.SweepLeft[chainID])
 		low, left := gasVerdict(bal, cost, s.cfg.GasMin[chainID], limit)
 		lowKey := "gas-low:" + chainID
@@ -379,4 +380,59 @@ func gasVerdict(bal, cost decimal.Decimal, floor float64, leftLimit int) (bool, 
 	left := usdt.EstimateSweeps(bal, cost)
 	low := bal.LessThan(decimal.NewFromFloat(floor)) || (cost.Sign() > 0 && left <= leftLimit)
 	return low, left
+}
+
+
+// gasOutflowVerdict reports a native-coin drop that our own sweeps cannot
+// explain. Each sweep costs at most `cost`; we allow 3x that plus dust before
+// calling it suspicious.
+func gasOutflowVerdict(prev, cur decimal.Decimal, sweeps int, cost decimal.Decimal) (bool, decimal.Decimal) {
+	if !cur.LessThan(prev) {
+		return false, decimal.Zero
+	}
+	delta := prev.Sub(cur)
+	if sweeps <= 0 {
+		return true, delta
+	}
+	expected := cost.Mul(decimal.NewFromInt(int64(sweeps))).Mul(decimal.NewFromFloat(3))
+	return delta.GreaterThan(expected.Add(decimal.NewFromFloat(0.001))), delta
+}
+
+// detectGasOutflow alerts when the gas wallet loses native coin without a sweep
+// to explain it — the signature of a leaked gas key.
+func (s *Service) detectGasOutflow(ctx context.Context, chainID string, local usdt.Chain, bal, cost decimal.Decimal) {
+	if s.alerts == nil || !s.alerts.Enabled() {
+		return
+	}
+	prev, has, err := s.store.GasWalletState(ctx, chainID)
+	if err != nil {
+		return
+	}
+	if has {
+		if prevBal, perr := decimal.NewFromString(prev.Balance); perr == nil {
+			sweeps, _ := s.store.SweepCountSince(ctx, chainID, prev.UpdatedAt)
+			if alert, delta := gasOutflowVerdict(prevBal, bal, sweeps, cost); alert {
+				subject := fmt.Sprintf("[USDT 告警] %s Gas 钱包出现非归集转出：-%s %s",
+					local.Name, usdt.FormatCoin(delta), local.NativeSymbol)
+				body := strings.Join([]string{
+					"Gas 钱包的余额变少了，但对不上本服务发出的归集交易。",
+					"通常意味着 Gas 私钥泄露，或者有人手动动过这个钱包。",
+					"",
+					"网络：" + local.Name,
+					"最近观察余额：" + usdt.FormatCoin(prevBal) + " " + local.NativeSymbol,
+					"当前余额：" + usdt.FormatCoin(bal) + " " + local.NativeSymbol,
+					fmt.Sprintf("期间归集笔数：%d", sweeps),
+					"",
+					"处理建议：立刻换一把新的 Gas 私钥（重新 new-key、写进 .env、重启），并检查服务器是否被入侵。",
+					"用户资金不受影响：合约只允许把钱转到 destination。",
+				}, "\n")
+				if err := s.alerts.Send(ctx, subject, body); err != nil {
+					slog.Warn("gas outflow alert failed", "chain", chainID, "error", err)
+				}
+			}
+		}
+	}
+	if err := s.store.SetGasWalletState(ctx, chainID, store.GasState{Balance: bal.String()}); err != nil {
+		slog.Warn("persist gas state", "chain", chainID, "error", err)
+	}
 }
