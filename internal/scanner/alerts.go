@@ -100,13 +100,13 @@ func (s *Service) checkGasAlerts(ctx context.Context) error {
 			if sender := s.senders[chainID]; sender != nil {
 				addr = sender.Address()
 			}
-			subject := fmt.Sprintf("[USDT 告警] %s Gas 钱包余额不足：%s %s", local.Name, bal.StringFixed(4), local.NativeSymbol)
+			subject := fmt.Sprintf("[USDT 告警] %s Gas 钱包余额不足：%s %s", local.Name, usdt.FormatCoin(bal), local.NativeSymbol)
 			body := strings.Join([]string{
 				"归集会暂停，但用户资金不受影响（仍在各自合约地址里）。",
 				"",
 				"网络：" + local.Name,
 				"Gas 钱包：" + addr,
-				"当前余额：" + bal.StringFixed(4) + " " + local.NativeSymbol,
+				"当前余额：" + usdt.FormatCoin(bal) + " " + local.NativeSymbol,
 				"告警阈值：" + decimal.NewFromFloat(floor).String() + " " + local.NativeSymbol,
 				"",
 				"充值网络请选择 " + local.Name + "，充到上面的 Gas 钱包地址。",
@@ -129,8 +129,8 @@ func (s *Service) checkGasAlerts(ctx context.Context) error {
 		if hasOK && !lastOK.Before(lastLow) {
 			continue
 		}
-		subject := fmt.Sprintf("[USDT 恢复] %s Gas 钱包已充值：%s %s", local.Name, bal.StringFixed(4), local.NativeSymbol)
-		body := fmt.Sprintf("网络：%s\n当前余额：%s %s\n归集已恢复正常。", local.Name, bal.StringFixed(4), local.NativeSymbol)
+		subject := fmt.Sprintf("[USDT 恢复] %s Gas 钱包已充值：%s %s", local.Name, usdt.FormatCoin(bal), local.NativeSymbol)
+		body := fmt.Sprintf("网络：%s\n当前余额：%s %s\n归集已恢复正常。", local.Name, usdt.FormatCoin(bal), local.NativeSymbol)
 		if err := s.alerts.Alert(ctx, "gas-ok:"+chainID, subject, body); err != nil {
 			slog.Warn("gas recovery alert failed", "chain", chainID, "error", err)
 		}
@@ -296,7 +296,7 @@ func (s *Service) dailySummary(ctx context.Context) error {
 			name = local.Name
 		}
 		if bal, ok := s.nativeBalance(ctx, chainID); ok {
-			fmt.Fprintf(&b, "%s\n  Gas 余额：%s %s\n", name, bal.StringFixed(4), local.NativeSymbol)
+			fmt.Fprintf(&b, "%s\n  Gas 余额：%s %s\n", name, usdt.FormatCoin(bal), local.NativeSymbol)
 		} else {
 			fmt.Fprintf(&b, "%s\n  Gas 余额：未配置\n", name)
 		}
@@ -313,7 +313,7 @@ func (s *Service) dailySummary(ctx context.Context) error {
 				if dest, err := factoryDestination(ctx, client, remote.Factory); err == nil {
 					if raw, err := tokenBalance(ctx, client, remote.USDT, dest); err == nil {
 						amt := decimal.NewFromBigInt(raw, -remote.Decimals)
-						fmt.Fprintf(&b, "  收款地址 %s：%s USDT\n", shortAddr(dest), amt.StringFixed(2))
+						fmt.Fprintf(&b, "  收款地址 %s：%s USDT\n", shortAddr(dest), usdt.FormatCoin(amt))
 					}
 				}
 			}

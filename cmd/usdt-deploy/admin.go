@@ -154,18 +154,18 @@ func printBalances(ctx context.Context, client *rpc.Client, chain usdt.Chain, fa
 	if err != nil {
 		return err
 	}
-	fmt.Println("USDT        :", amount.StringFixed(2), "USDT", "("+chain.Name+")")
+	fmt.Println("USDT        :", usdt.FormatCoin(amount), "USDT", "("+chain.Name+")")
 
 	if native, err := client.Balance(ctx, strings.ToLower(dest.Hex())); err == nil {
 		nativeAmount := decimal.NewFromBigInt(native, -18)
-		fmt.Println("收款地址 gas :", nativeAmount.StringFixed(4), chain.NativeSymbol)
+		fmt.Println("收款地址 gas :", usdt.FormatCoin(nativeAmount), chain.NativeSymbol)
 	}
 	if raw := strings.TrimSpace(os.Getenv("GAS_PRIVATE_KEY")); raw != "" {
 		if key, err := crypto.HexToECDSA(strings.TrimPrefix(raw, "0x")); err == nil {
 			gasAddr := crypto.PubkeyToAddress(key.PublicKey)
 			if native, err := client.Balance(ctx, strings.ToLower(gasAddr.Hex())); err == nil {
 				fmt.Println("Gas 钱包     :", usdt.DisplayAddress(chain, gasAddr),
-					decimal.NewFromBigInt(native, -18).StringFixed(4), chain.NativeSymbol)
+					usdt.FormatCoin(decimal.NewFromBigInt(native, -18)), chain.NativeSymbol)
 			}
 		}
 	}
