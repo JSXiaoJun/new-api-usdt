@@ -61,7 +61,7 @@ func main() {
 		err = deployEVM(os.Args[2:])
 	case "tron":
 		err = deployTron(os.Args[2:])
-	case "set-destination", "transfer-owner", "accept-ownership":
+	case "set-destination", "transfer-owner", "accept-ownership", "balance":
 		err = factoryAdmin(os.Args[1], os.Args[2:])
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])

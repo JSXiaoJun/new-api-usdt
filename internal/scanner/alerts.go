@@ -106,7 +106,7 @@ func (s *Service) checkGasAlerts(ctx context.Context) error {
 				"",
 				"网络：" + local.Name,
 				"Gas 钱包：" + addr,
-				"当前余额：" + bal.StringFixed(6) + " " + local.NativeSymbol,
+				"当前余额：" + bal.StringFixed(4) + " " + local.NativeSymbol,
 				"告警阈值：" + decimal.NewFromFloat(floor).String() + " " + local.NativeSymbol,
 				"",
 				"充值网络请选择 " + local.Name + "，充到上面的 Gas 钱包地址。",
@@ -130,7 +130,7 @@ func (s *Service) checkGasAlerts(ctx context.Context) error {
 			continue
 		}
 		subject := fmt.Sprintf("[USDT 恢复] %s Gas 钱包已充值：%s %s", local.Name, bal.StringFixed(4), local.NativeSymbol)
-		body := fmt.Sprintf("网络：%s\n当前余额：%s %s\n归集已恢复正常。", local.Name, bal.StringFixed(6), local.NativeSymbol)
+		body := fmt.Sprintf("网络：%s\n当前余额：%s %s\n归集已恢复正常。", local.Name, bal.StringFixed(4), local.NativeSymbol)
 		if err := s.alerts.Alert(ctx, "gas-ok:"+chainID, subject, body); err != nil {
 			slog.Warn("gas recovery alert failed", "chain", chainID, "error", err)
 		}

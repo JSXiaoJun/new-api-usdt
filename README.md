@@ -131,6 +131,24 @@ docker run --rm -e OWNER_PRIVATE_KEY --entrypoint usdt-deploy ghcr.io/jsxiaojun/
   accept-ownership -chain polygon -rpc https://polygon-bor-rpc.publicnode.com -factory 0x工厂地址
 ```
 
+```bash
+# 看当前余额（只读，不发交易；USDT 保留两位小数）
+docker compose run --rm --entrypoint usdt-deploy usdt-scanner balance \
+  -chain polygon -rpc https://polygon-bor-rpc.publicnode.com \
+  -factory 0x工厂地址
+```
+
+输出：
+
+```
+factory     : 0x2c22...
+owner       : 0xdd89...
+destination : 0xd613...
+USDT        : 2.00 USDT (Polygon (PoS))
+收款地址 gas : 0.0000 POL
+Gas 钱包     : 0x2384...  0.9300 POL
+```
+
 不带 `OWNER_PRIVATE_KEY` 运行时只打印 `factory / owner / pendingOwner / destination`，不会发交易——先用它核对状态最安全。
 
 ## 五、配置 new-api

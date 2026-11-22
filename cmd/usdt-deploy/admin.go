@@ -2,12 +2,18 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
+	"math/big"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/shopspring/decimal"
 
 	"new-api-usdt/contracts"
 	"new-api-usdt/internal/rpc"
@@ -60,6 +66,9 @@ func factoryAdmin(command string, args []string) error {
 	case "accept-ownership":
 		data, err = contracts.Factory.ABI.Pack("acceptOwnership")
 		nextLabel = "owner"
+	case "balance":
+		// Read-only: printBalances() prints and returns before any key is read.
+		nextLabel = "destination"
 	default:
 		return fmt.Errorf("unknown factory command %q", command)
 	}
@@ -91,6 +100,11 @@ func factoryAdmin(command string, args []string) error {
 	}
 	if addr, err := readFactoryAddress(ctx, client, factory, "destination"); err == nil {
 		fmt.Println("destination :", usdt.DisplayAddress(chain, addr))
+	}
+
+	// `balance` is read-only: report the collection wallet and what is in it.
+	if command == "balance" {
+		return printBalances(ctx, client, chain, factory)
 	}
 
 	key, err := loadKey("OWNER_PRIVATE_KEY")
@@ -127,4 +141,56 @@ func readFactoryAddress(ctx context.Context, client *rpc.Client, factory common.
 		return common.Address{}, fmt.Errorf("short %s result", method)
 	}
 	return common.BytesToAddress(raw), nil
+}
+
+// printBalances reports how much USDT the collection wallet holds, plus the
+// native gas balances, all rounded to two decimals for USDT.
+func printBalances(ctx context.Context, client *rpc.Client, chain usdt.Chain, factory common.Address) error {
+	dest, err := readFactoryAddress(ctx, client, factory, "destination")
+	if err != nil {
+		return err
+	}
+	amount, err := erc20Balance(ctx, client, common.HexToAddress(chain.USDT), dest, chain.Decimals)
+	if err != nil {
+		return err
+	}
+	fmt.Println("USDT        :", amount.StringFixed(2), "USDT", "("+chain.Name+")")
+
+	if native, err := client.Balance(ctx, strings.ToLower(dest.Hex())); err == nil {
+		nativeAmount := decimal.NewFromBigInt(native, -18)
+		fmt.Println("收款地址 gas :", nativeAmount.StringFixed(4), chain.NativeSymbol)
+	}
+	if raw := strings.TrimSpace(os.Getenv("GAS_PRIVATE_KEY")); raw != "" {
+		if key, err := crypto.HexToECDSA(strings.TrimPrefix(raw, "0x")); err == nil {
+			gasAddr := crypto.PubkeyToAddress(key.PublicKey)
+			if native, err := client.Balance(ctx, strings.ToLower(gasAddr.Hex())); err == nil {
+				fmt.Println("Gas 钱包     :", usdt.DisplayAddress(chain, gasAddr),
+					decimal.NewFromBigInt(native, -18).StringFixed(4), chain.NativeSymbol)
+			}
+		}
+	}
+	return nil
+}
+
+// erc20Balance calls balanceOf(holder) and scales by the token decimals.
+func erc20Balance(ctx context.Context, client *rpc.Client, token, holder common.Address, decimals int32) (decimal.Decimal, error) {
+	data := make([]byte, 4+32)
+	copy(data[:4], mustDecodeHex("70a08231"))
+	copy(data[4:], common.LeftPadBytes(holder.Bytes(), 32))
+	raw, err := client.EthCall(ctx, "", token.Hex(), data)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	if len(raw) < 32 {
+		return decimal.Zero, fmt.Errorf("short balanceOf result")
+	}
+	return decimal.NewFromBigInt(new(big.Int).SetBytes(raw[:32]), -decimals), nil
+}
+
+func mustDecodeHex(s string) []byte {
+	out, err := hex.DecodeString(s)
+	if err != nil {
+		panic(err)
+	}
+	return out
 }

@@ -105,7 +105,7 @@ func (s *Service) checkDestination(ctx context.Context) error {
 				"",
 				"网络：" + name,
 				"收款地址：" + dest,
-				fmt.Sprintf("当前余额：%s %s", cur.StringFixed(6), symbol),
+				fmt.Sprintf("当前余额：%s %s", cur.StringFixed(2), symbol),
 				fmt.Sprintf("每满 %s %s 提醒一次；余额减少会立刻提醒。", step.String(), symbol),
 			}, "\n")
 			if err := s.alerts.Alert(ctx, "dest-init:"+chainID+":"+dest, subject, body); err != nil {
@@ -118,7 +118,7 @@ func (s *Service) checkDestination(ctx context.Context) error {
 				"",
 				"网络：" + name,
 				"收款地址：" + dest,
-				fmt.Sprintf("当前余额：%s %s", cur.StringFixed(6), symbol),
+				fmt.Sprintf("当前余额：%s %s", cur.StringFixed(2), symbol),
 				fmt.Sprintf("已跨过：%s %s", amount.StringFixed(0), symbol),
 				"",
 				"需要提到交易所时：先给该地址充一点原生币付 gas，再用对应私钥转出。",
@@ -133,8 +133,8 @@ func (s *Service) checkDestination(ctx context.Context) error {
 				"",
 				"网络：" + name,
 				"收款地址：" + dest,
-				fmt.Sprintf("减少金额：%s %s", amount.StringFixed(6), symbol),
-				fmt.Sprintf("当前余额：%s %s", cur.StringFixed(6), symbol),
+				fmt.Sprintf("减少金额：%s %s", amount.StringFixed(2), symbol),
+				fmt.Sprintf("当前余额：%s %s", cur.StringFixed(2), symbol),
 			}, "\n")
 			if err := s.alerts.Send(ctx, subject, body); err != nil {
 				slog.Warn("destination decrease alert failed", "chain", chainID, "error", err)
