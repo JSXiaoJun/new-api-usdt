@@ -65,3 +65,10 @@ jobs:
           echo "checking $IMAGE:$TAG"
           docker run --rm --entrypoint sh "$IMAGE:$TAG" -c 'ls -l /usr/local/bin'
           docker run --rm --entrypoint sh "$IMAGE:$TAG" -c 'test -x /usr/local/bin/usdt-scanner && test -x /usr/local/bin/usdt-deploy && test -x /usr/local/bin/usdt-notify'
+      # tag 与源码里的常量必须一致，否则线上日志会显示错误的版本号。
+      - name: version matches tag
+        if: github.ref_type == 'tag'
+        run: |
+          src=$(grep -o 'const Version = "[^"]*"' internal/scanner/service.go | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "source=$src tag=${{ github.ref_name }}"
+          [ "v$src" = "${{ github.ref_name }}" ] || { echo "::error::Version constant v$src does not match tag ${{ github.ref_name }}"; exit 1; }
