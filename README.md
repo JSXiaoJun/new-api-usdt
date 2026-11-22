@@ -202,7 +202,7 @@ ALERT_EXPECTED_DESTINATION_POLYGON=0x你的收款地址
 
 | 事件 | 说明 |
 |---|---|
-| Gas 钱包低于阈值 | 默认 Polygon 0.2、BSC 0.01、Arbitrum 0.0005、TRON 20；低于就发信，补够了再发一封“已恢复” |
+| Gas 钱包不够用了 | 按「还能归集多少次」判断：**剩余 ≤ 30 次就发信，之后每 30 分钟提醒一次**，补够后发一封“已恢复”（成本默认 Polygon 0.03、BSC 0.0002、Arbitrum 0.0002、TRON 2，可用 `ALERT_SWEEP_COST_*` 调） |
 | `setDestination` 被调用 | 秒级邮件，带新旧地址 + 区块浏览器链接；新地址与 `ALERT_EXPECTED_DESTINATION_*` 不一致时标记“⚠️ 请立刻核实” |
 | 归集连续失败 3 次 | 常见原因是 Gas 不足 / RPC 异常 / gas 价超上限 |
 | 收款地址余额变化 | **每满 100 USDT 提醒一次**（`ALERT_DESTINATION_STEP_*` 可调）；**余额减少立刻提醒**（减少金额 + 当前余额），方便随时知道钱袋子里还有多少 |

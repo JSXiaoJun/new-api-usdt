@@ -75,8 +75,9 @@ func (s *Service) nativeBalance(ctx context.Context, chain string) (decimal.Deci
 	return decimal.NewFromBigInt(bal, -decimals), true
 }
 
-// checkGasAlerts warns once per cooldown when a gas wallet drops below its
-// floor, and sends a recovery note after a refill.
+// checkGasAlerts warns when a gas wallet can pay for fewer than the configured
+// number of sweeps, repeating every ALERT_GAS_REPEAT_SECONDS until it is topped
+// up, and sends a recovery note afterwards.
 func (s *Service) checkGasAlerts(ctx context.Context) error {
 	if !s.alerts.Enabled() {
 		return nil
@@ -86,36 +87,40 @@ func (s *Service) checkGasAlerts(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		floor, ok := s.cfg.GasMin[chainID]
-		if !ok {
-			continue
-		}
 		bal, ok := s.nativeBalance(ctx, chainID)
 		if !ok {
 			continue
 		}
+		cost := decimal.NewFromFloat(s.cfg.SweepCost[chainID])
+		limit := int(s.cfg.SweepLeft[chainID])
+		low, left := gasVerdict(bal, cost, s.cfg.GasMin[chainID], limit)
 		lowKey := "gas-low:" + chainID
-		if bal.LessThan(decimal.NewFromFloat(floor)) {
+
+		if low {
 			addr := ""
 			if sender := s.senders[chainID]; sender != nil {
 				addr = sender.Address()
 			}
-			subject := fmt.Sprintf("[USDT 告警] %s Gas 钱包余额不足：%s %s", local.Name, usdt.FormatCoin(bal), local.NativeSymbol)
+			subject := fmt.Sprintf("[USDT 告警] %s Gas 钱包只能再归集约 %d 次（%s %s）",
+				local.Name, left, usdt.FormatCoin(bal), local.NativeSymbol)
 			body := strings.Join([]string{
 				"归集会暂停，但用户资金不受影响（仍在各自合约地址里）。",
 				"",
 				"网络：" + local.Name,
 				"Gas 钱包：" + addr,
-				"当前余额：" + usdt.FormatCoin(bal) + " " + local.NativeSymbol,
-				"告警阈值：" + decimal.NewFromFloat(floor).String() + " " + local.NativeSymbol,
+				fmt.Sprintf("当前余额：%s %s", usdt.FormatCoin(bal), local.NativeSymbol),
+				fmt.Sprintf("按每次归集约 %s %s 估算，还能归集约 %d 次（提醒阈值 %d 次）",
+					usdt.FormatCoin(cost), local.NativeSymbol, left, limit),
 				"",
-				"充值网络请选择 " + local.Name + "，充到上面的 Gas 钱包地址。",
+				fmt.Sprintf("充值：%s 网络 → 上面的 Gas 钱包地址（建议一次补 2~5 %s）", local.Name, local.NativeSymbol),
+				fmt.Sprintf("余额不足期间每 %d 分钟重复提醒一次。", int(s.cfg.GasRepeat.Minutes())),
 			}, "\n")
-			if err := s.alerts.Alert(ctx, lowKey, subject, body); err != nil {
+			if err := s.alerts.AlertEvery(ctx, lowKey, subject, body, s.cfg.GasRepeat); err != nil {
 				slog.Warn("gas alert failed", "chain", chainID, "error", err)
 			}
 			continue
 		}
+
 		// Recovered? Only notify when the last low alert is newer than the last
 		// recovery note, so a healthy wallet never mails on startup.
 		lastLow, hasLow, err := s.store.LastAlert(ctx, lowKey)
@@ -129,8 +134,11 @@ func (s *Service) checkGasAlerts(ctx context.Context) error {
 		if hasOK && !lastOK.Before(lastLow) {
 			continue
 		}
-		subject := fmt.Sprintf("[USDT 恢复] %s Gas 钱包已充值：%s %s", local.Name, usdt.FormatCoin(bal), local.NativeSymbol)
-		body := fmt.Sprintf("网络：%s\n当前余额：%s %s\n归集已恢复正常。", local.Name, usdt.FormatCoin(bal), local.NativeSymbol)
+		subject := fmt.Sprintf("[USDT 恢复] %s Gas 钱包已充值：%s %s（约 %d 次归集）",
+			local.Name, usdt.FormatCoin(bal), local.NativeSymbol, left)
+		body := fmt.Sprintf("网络：%s\n当前余额：%s %s\n按每次 %s %s 估算，还能归集约 %d 次。\n归集已恢复正常。",
+			local.Name, usdt.FormatCoin(bal), local.NativeSymbol,
+			usdt.FormatCoin(cost), local.NativeSymbol, left)
 		if err := s.alerts.Alert(ctx, "gas-ok:"+chainID, subject, body); err != nil {
 			slog.Warn("gas recovery alert failed", "chain", chainID, "error", err)
 		}
@@ -296,7 +304,8 @@ func (s *Service) dailySummary(ctx context.Context) error {
 			name = local.Name
 		}
 		if bal, ok := s.nativeBalance(ctx, chainID); ok {
-			fmt.Fprintf(&b, "%s\n  Gas 余额：%s %s\n", name, usdt.FormatCoin(bal), local.NativeSymbol)
+			left := usdt.EstimateSweeps(bal, decimal.NewFromFloat(s.cfg.SweepCost[chainID]))
+			fmt.Fprintf(&b, "%s\n  Gas 余额：%s %s（约 %d 次归集）\n", name, usdt.FormatCoin(bal), local.NativeSymbol, left)
 		} else {
 			fmt.Fprintf(&b, "%s\n  Gas 余额：未配置\n", name)
 		}
@@ -348,4 +357,13 @@ func parseHexUint(s string) uint64 {
 		return 0
 	}
 	return v
+}
+
+
+// gasVerdict reports whether the gas wallet needs a top-up and how many sweeps
+// it can still pay for.
+func gasVerdict(bal, cost decimal.Decimal, floor float64, leftLimit int) (bool, int) {
+	left := usdt.EstimateSweeps(bal, cost)
+	low := bal.LessThan(decimal.NewFromFloat(floor)) || (cost.Sign() > 0 && left <= leftLimit)
+	return low, left
 }

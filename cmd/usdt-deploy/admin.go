@@ -164,8 +164,10 @@ func printBalances(ctx context.Context, client *rpc.Client, chain usdt.Chain, fa
 		if key, err := crypto.HexToECDSA(strings.TrimPrefix(raw, "0x")); err == nil {
 			gasAddr := crypto.PubkeyToAddress(key.PublicKey)
 			if native, err := client.Balance(ctx, strings.ToLower(gasAddr.Hex())); err == nil {
+				amount := decimal.NewFromBigInt(native, -18)
 				fmt.Println("Gas 钱包     :", usdt.DisplayAddress(chain, gasAddr),
-					usdt.FormatCoin(decimal.NewFromBigInt(native, -18)), chain.NativeSymbol)
+					usdt.FormatCoin(amount), chain.NativeSymbol,
+					fmt.Sprintf("（约 %d 次归集）", usdt.EstimateSweeps(amount, sweepCost(chain))))
 			}
 		}
 	}
@@ -193,4 +195,16 @@ func mustDecodeHex(s string) []byte {
 		panic(err)
 	}
 	return out
+}
+
+
+// sweepCost reads ALERT_SWEEP_COST_<CHAIN> and falls back to the built-in
+// per-chain default, so the estimate matches what the scanner uses.
+func sweepCost(chain usdt.Chain) decimal.Decimal {
+	if raw := strings.TrimSpace(os.Getenv("ALERT_SWEEP_COST_" + strings.ToUpper(chain.ID))); raw != "" {
+		if d, err := decimal.NewFromString(raw); err == nil && d.Sign() > 0 {
+			return d
+		}
+	}
+	return usdt.DefaultSweepCost(chain.ID)
 }

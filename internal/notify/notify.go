@@ -167,14 +167,20 @@ func (m *Manager) Enabled() bool { return m != nil && m.sender != nil }
 // Alert sends at most once per cooldown window for the given key. Errors are
 // returned for logging but callers should keep running.
 func (m *Manager) Alert(ctx context.Context, key, subject, body string) error {
+	return m.AlertEvery(ctx, key, subject, body, m.cooldown)
+}
+
+// AlertEvery is Alert with an explicit cooldown for this key (used by the gas
+// wallet, which repeats every 30 minutes instead of every 6 hours).
+func (m *Manager) AlertEvery(ctx context.Context, key, subject, body string, cooldown time.Duration) error {
 	if !m.Enabled() {
 		return nil
 	}
-	if m.store != nil && m.cooldown > 0 {
+	if m.store != nil && cooldown > 0 {
 		last, ok, err := m.store.LastAlert(ctx, key)
 		if err != nil {
 			slog.Warn("notify: read alert state", "key", key, "error", err)
-		} else if ok && m.now().Sub(last) < m.cooldown {
+		} else if ok && m.now().Sub(last) < cooldown {
 			return nil
 		}
 	}

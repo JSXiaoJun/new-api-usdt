@@ -52,9 +52,12 @@ type Config struct {
 	MailFrom            string
 	MailTo              []string
 	AlertCooldown       time.Duration
-	GasMin              map[string]float64 // native coin floor per chain
-	ExpectedDestination map[string]string  // lower-case destination we expect
-	DestinationStep     map[string]float64 // notify each time the balance crosses a multiple
+	GasRepeat           time.Duration            // repeat interval for a low-gas alert
+	GasMin              map[string]float64       // native coin floor per chain
+	SweepCost           map[string]float64       // native coin per sweep, per chain
+	SweepLeft           map[string]float64       // alert when fewer sweeps than this remain
+	ExpectedDestination map[string]string        // lower-case destination we expect
+	DestinationStep     map[string]float64       // notify each time the balance crosses a multiple
 	DailyHour           int
 	DailyMinute         int
 }
@@ -132,6 +135,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.AlertCooldown = time.Duration(cooldown) * time.Second
+	repeat, err := envUint("ALERT_GAS_REPEAT_SECONDS", 1800)
+	if err != nil {
+		return nil, err
+	}
+	cfg.GasRepeat = time.Duration(repeat) * time.Second
 	hour, err := envUint("ALERT_DAILY_HOUR", 20)
 	if err != nil {
 		return nil, err
@@ -156,6 +164,14 @@ func Load() (*Config, error) {
 		usdt.ChainPolygon:  100,
 		usdt.ChainArbitrum: 100,
 		usdt.ChainTron:     100,
+	}
+	// Sweep cost / remaining-sweeps thresholds. Adding a chain only needs a
+	// default in usdt.DefaultSweepCost (and optionally ALERT_SWEEP_* env).
+	cfg.SweepCost = map[string]float64{}
+	cfg.SweepLeft = map[string]float64{}
+	for _, id := range usdt.ChainOrder {
+		cfg.SweepCost[id] = usdt.DefaultSweepCost(id).InexactFloat64()
+		cfg.SweepLeft[id] = 30
 	}
 
 	if raw := env("GAS_PRIVATE_KEY", ""); raw != "" {
@@ -207,6 +223,20 @@ func Load() (*Config, error) {
 				return nil, fmt.Errorf("ALERT_DESTINATION_STEP_%s must be a non-negative number", upper)
 			}
 			cfg.DestinationStep[id] = step
+		}
+		if raw := env("ALERT_SWEEP_COST_"+upper, ""); raw != "" {
+			cost, err := strconv.ParseFloat(raw, 64)
+			if err != nil || cost < 0 {
+				return nil, fmt.Errorf("ALERT_SWEEP_COST_%s must be a non-negative number", upper)
+			}
+			cfg.SweepCost[id] = cost
+		}
+		if raw := env("ALERT_SWEEP_LEFT_"+upper, ""); raw != "" {
+			left, err := strconv.ParseFloat(raw, 64)
+			if err != nil || left < 0 {
+				return nil, fmt.Errorf("ALERT_SWEEP_LEFT_%s must be a non-negative number", upper)
+			}
+			cfg.SweepLeft[id] = left
 		}
 		if c.MaxRange == 0 {
 			c.MaxRange = 1

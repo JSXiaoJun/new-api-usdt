@@ -164,3 +164,27 @@ func TestDailySummaryHonoursConfiguredHour(t *testing.T) {
 		t.Fatalf("daily summary repeated: %d", len(sender.subjects))
 	}
 }
+
+func TestGasVerdict(t *testing.T) {
+	cases := []struct {
+		bal, cost  string
+		floor      float64
+		limit      int
+		wantLow    bool
+		wantLeft   int
+	}{
+		{"0.93", "0.03", 0.2, 30, false, 31},
+		{"0.90", "0.03", 0.2, 30, true, 30},
+		{"0.10", "0.03", 0.2, 30, true, 3},
+		{"0.15", "0.03", 0.2, 30, true, 5},
+		{"0", "0.03", 0.2, 30, true, 0},
+		{"2", "0.03", 0.2, 30, false, 66},
+	}
+	for _, c := range cases {
+		low, left := gasVerdict(decimal.RequireFromString(c.bal), decimal.RequireFromString(c.cost), c.floor, c.limit)
+		if low != c.wantLow || left != c.wantLeft {
+			t.Fatalf("gasVerdict(%s,%s) = low=%v left=%d, want low=%v left=%d",
+				c.bal, c.cost, low, left, c.wantLow, c.wantLeft)
+		}
+	}
+}
