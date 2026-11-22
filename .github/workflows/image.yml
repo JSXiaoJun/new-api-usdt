@@ -56,3 +56,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # 防止再出现"镜像里少了某个二进制"的情况：构建完直接把镜像拉下来检查。
+      - name: verify binaries
+        run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          if [ "${{ github.ref_type }}" = "tag" ]; then TAG="${{ github.ref_name }}"; else TAG="main"; fi
+          echo "checking $IMAGE:$TAG"
+          docker run --rm --entrypoint sh "$IMAGE:$TAG" -c 'ls -l /usr/local/bin'
+          docker run --rm --entrypoint sh "$IMAGE:$TAG" -c 'test -x /usr/local/bin/usdt-scanner && test -x /usr/local/bin/usdt-deploy && test -x /usr/local/bin/usdt-notify'
