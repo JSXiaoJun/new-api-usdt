@@ -12,6 +12,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"new-api-usdt/internal/config"
+	"new-api-usdt/internal/newapi"
 	"new-api-usdt/internal/notify"
 	"new-api-usdt/internal/store"
 	"new-api-usdt/internal/usdt"
@@ -82,9 +83,14 @@ func (s *Service) checkGasAlerts(ctx context.Context) error {
 	if !s.alerts.Enabled() {
 		return nil
 	}
-	for chainID := range s.senders {
+	// Only chains new-api actually asks us to watch: a configured RPC that no
+	// chain uses must not page the operator about an empty wallet.
+	for chainID, remote := range s.remoteChains() {
 		local, ok := usdt.Lookup(chainID)
-		if !ok {
+		if !ok || strings.TrimSpace(remote.Factory) == "" {
+			continue
+		}
+		if s.senders[chainID] == nil {
 			continue
 		}
 		bal, ok := s.nativeBalance(ctx, chainID)
@@ -297,7 +303,14 @@ func (s *Service) dailySummary(ctx context.Context) error {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "统计日期：%s\n\n", now.Format("2006-01-02"))
-	for chainID := range s.cfg.Chains {
+	chains := s.remoteChains()
+	if len(chains) == 0 {
+		chains = map[string]newapi.Chain{}
+		for id := range s.cfg.Chains {
+			chains[id] = newapi.Chain{ID: id}
+		}
+	}
+	for chainID := range chains {
 		local, _ := usdt.Lookup(chainID)
 		name := chainID
 		if local.Name != "" {

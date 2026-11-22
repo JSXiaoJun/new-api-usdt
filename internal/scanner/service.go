@@ -532,7 +532,11 @@ func (s *Service) recheckSweptWallets(ctx context.Context, id, joined string) {
 
 func (s *Service) heartbeat(ctx context.Context) error {
 	report := map[string]newapi.ChainHeartbeat{}
+	remote := s.remoteChains()
 	for id, stats := range s.stats {
+		if _, ok := remote[id]; !ok {
+			continue
+		}
 		stats.mu.Lock()
 		hb := newapi.ChainHeartbeat{Head: stats.head, Cursor: stats.cursor, LastError: stats.lastError}
 		stats.mu.Unlock()
