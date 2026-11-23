@@ -202,13 +202,20 @@ func (s *Service) watchFactoryEvents(ctx context.Context) error {
 		}
 		from := cursor + 1
 		for from <= head {
-			to := from + 999
+			to := from + 499
 			if to > head {
 				to = head
 			}
 			logs, err := client.GetLogs(ctx, from, to, chain.Factory, [][]string{{destinationChangedTopic}})
 			if err != nil {
-				return fmt.Errorf("%s factory events %d-%d: %w", chainID, from, to, err)
+				// Fast chains (Arbitrum: 0.25s blocks) move the head between our
+				// read and the query, and public endpoints rate-limit getLogs.
+				// Stop this round and retry from the same cursor next minute.
+				if strings.Contains(err.Error(), "beyond current head") {
+					break
+				}
+				slog.Warn("factory events", "chain", chainID, "from", from, "to", to, "error", err)
+				break
 			}
 			for _, l := range logs {
 				if l.Removed || len(l.Topics) < 3 {

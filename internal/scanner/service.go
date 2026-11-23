@@ -24,7 +24,7 @@ import (
 	"new-api-usdt/internal/usdt"
 )
 
-const Version = "0.1.17"
+const Version = "0.1.18"
 
 // addressBatch keeps the topic filter inside every provider's limit (TRON
 // accepts at most 1000 options per topic).
@@ -395,8 +395,12 @@ func (s *Service) notify(ctx context.Context) error {
 		result, err := s.api.ReportDeposit(ctx, d.Chain, d.TxHash, d.LogIndex)
 		switch {
 		case err != nil:
+			slog.Warn("deposit report failed, will retry", "chain", d.Chain, "tx", d.TxHash,
+				"log", d.LogIndex, "attempts", d.Attempts+1, "error", err)
 			_ = s.store.RetryDeposit(ctx, d, err.Error())
 		case !result.Settled:
+			slog.Info("deposit report not settled, will retry", "chain", d.Chain, "tx", d.TxHash,
+				"log", d.LogIndex, "detail", result.Detail)
 			_ = s.store.RetryDeposit(ctx, d, result.Detail)
 		default:
 			status := "done"
