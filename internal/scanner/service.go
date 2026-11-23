@@ -24,7 +24,7 @@ import (
 	"new-api-usdt/internal/usdt"
 )
 
-const Version = "0.1.10"
+const Version = "0.1.11"
 
 // addressBatch keeps the topic filter inside every provider's limit (TRON
 // accepts at most 1000 options per topic).

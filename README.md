@@ -216,6 +216,20 @@ ALERT_EXPECTED_DESTINATION_POLYGON=0x你的收款地址
 docker compose run --rm --entrypoint usdt-notify usdt-scanner "测试邮件：部署完成"
 ```
 
+## 九、手动归集（忽略后台门槛）
+
+后台的「归集门槛」只决定**新充值**什么时候被归集；已经躺在地址里、低于门槛的余额不会自己动。要一次性收回来：
+
+```bash
+docker compose run --rm --entrypoint usdt-scanner usdt-scanner sweep-once -min 0.01
+```
+
+- `-min`：只归集余额 ≥ 该值的地址（默认 0.01 USDT）
+- 每 25 个地址一笔交易，逐笔等待确认
+- 需要 `GAS_PRIVATE_KEY` 和 new-api 可达（工厂/合约信息从 new-api 读）
+- 跑完会打印 `force sweep: sent chain=... tx=... wallets=N amount=X`
+
+> 所以把归集门槛设高（例如 100 USDT）是安全的：钱不会丢，想收的时候用这条命令就行。
 ## 日常运维
 
 - **修改收款地址**：用 owner 钱包在区块浏览器（BscScan / Arbiscan / PolygonScan / TronScan）对工厂合约调用 `setDestination(新地址)`。扫链服务和 new-api 不需要改。
