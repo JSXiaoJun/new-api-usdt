@@ -436,3 +436,36 @@ func (s *Service) detectGasOutflow(ctx context.Context, chainID string, local us
 		slog.Warn("persist gas state", "chain", chainID, "error", err)
 	}
 }
+
+
+// reconcileSweepThresholds re-queues every wallet when new-api reports a new
+// sweep threshold, so balances dismissed under the old threshold are revisited.
+func (s *Service) reconcileSweepThresholds(ctx context.Context, remote map[string]newapi.Chain) {
+	for id, chain := range remote {
+		raw := strings.TrimSpace(chain.SweepThreshold)
+		if raw == "" {
+			continue
+		}
+		next, err := decimal.NewFromString(raw)
+		if err != nil {
+			continue
+		}
+		prevRaw, ok, err := s.store.SweepThreshold(ctx, id)
+		if err != nil {
+			continue
+		}
+		if ok {
+			if prev, perr := decimal.NewFromString(prevRaw); perr == nil && !prev.Equal(next) {
+				if n, ferr := s.store.FlagAllWallets(ctx, id); ferr == nil && n > 0 {
+					slog.Info("sweep threshold changed; re-queueing wallets",
+						"chain", id, "from", prevRaw, "to", raw, "wallets", n)
+				}
+			}
+		}
+		if prevRaw != raw {
+			if err := s.store.SetSweepThreshold(ctx, id, raw); err != nil {
+				slog.Warn("persist sweep threshold", "chain", id, "error", err)
+			}
+		}
+	}
+}

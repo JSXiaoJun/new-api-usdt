@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS alerts (
 	key     TEXT PRIMARY KEY,
 	sent_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chain_meta (
+	chain           TEXT PRIMARY KEY,
+	sweep_threshold TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS gas_state (
 	chain      TEXT PRIMARY KEY,
 	balance    TEXT NOT NULL,
@@ -403,4 +407,35 @@ func (s *Store) SweepCountSince(ctx context.Context, chain string, since int64) 
 	err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM sweeps WHERE chain = ? AND created_at >= ?`, chain, since).Scan(&n)
 	return n, err
+}
+
+
+// SweepThreshold returns the last sweep threshold this chain reported.
+func (s *Store) SweepThreshold(ctx context.Context, chain string) (string, bool, error) {
+	var v string
+	err := s.db.QueryRowContext(ctx, `SELECT sweep_threshold FROM chain_meta WHERE chain = ?`, chain).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return v, true, nil
+}
+
+// SetSweepThreshold records the threshold seen for a chain.
+func (s *Store) SetSweepThreshold(ctx context.Context, chain, threshold string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO chain_meta (chain, sweep_threshold) VALUES (?, ?)
+		ON CONFLICT (chain) DO UPDATE SET sweep_threshold = excluded.sweep_threshold`, chain, threshold)
+	return err
+}
+
+// FlagAllWallets puts every wallet of a chain back into the check queue, so a
+// changed sweep threshold re-examines balances that were already dismissed.
+func (s *Store) FlagAllWallets(ctx context.Context, chain string) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE wallets SET needs_check = 1 WHERE chain = ? AND needs_check = 0`, chain)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

@@ -229,7 +229,7 @@ docker compose run --rm --entrypoint usdt-scanner usdt-scanner sweep-once -min 0
 - 需要 `GAS_PRIVATE_KEY` 和 new-api 可达（工厂/合约信息从 new-api 读）
 - 跑完会打印 `force sweep: sent chain=... tx=... wallets=N amount=X`
 
-> 所以把归集门槛设高（例如 100 USDT）是安全的：钱不会丢，想收的时候用这条命令就行。
+> 从 v0.1.12 起，**在后台修改归集门槛会自动把该链所有地址重新排队**，存量余额 30 秒内开始分批补扫，不用再手动跑命令。\n> 手动 `sweep-once` 仍然保留，用于“立刻全收”或后台不可用时。
 ## 日常运维
 
 - **修改收款地址**：用 owner 钱包在区块浏览器（BscScan / Arbiscan / PolygonScan / TronScan）对工厂合约调用 `setDestination(新地址)`。扫链服务和 new-api 不需要改。

@@ -24,7 +24,7 @@ import (
 	"new-api-usdt/internal/usdt"
 )
 
-const Version = "0.1.11"
+const Version = "0.1.12"
 
 // addressBatch keeps the topic filter inside every provider's limit (TRON
 // accepts at most 1000 options per topic).
@@ -185,6 +185,7 @@ func (s *Service) syncState(ctx context.Context) error {
 		s.mu.Lock()
 		s.remote = remote
 		s.mu.Unlock()
+		s.reconcileSweepThresholds(ctx, remote)
 
 		for _, a := range state.Addresses {
 			row := store.Address{ID: a.ID, Chain: a.Chain, Address: strings.ToLower(a.Address), Salt: strings.ToLower(a.Salt)}
