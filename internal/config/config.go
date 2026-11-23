@@ -36,6 +36,8 @@ type Config struct {
 	GasKey        *ecdsa.PrivateKey
 	DataDir       string
 	PollInterval  time.Duration
+	// SyncInterval is how often we ask new-api for new addresses/thresholds.
+	SyncInterval time.Duration
 	SweepEnabled  bool
 	Chains        map[string]Chain
 	// TRON HTTP API (triggersmartcontract / broadcasttransaction) for sweeps.
@@ -109,6 +111,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.PollInterval = time.Duration(max(poll, 3)) * time.Second
+	sync, err := envUint("SYNC_SECONDS", 30)
+	if err != nil {
+		return nil, err
+	}
+	cfg.SyncInterval = time.Duration(max(sync, 5)) * time.Second
 	feeLimit, err := envUint("TRON_FEE_LIMIT_TRX", 50)
 	if err != nil {
 		return nil, err

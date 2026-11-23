@@ -24,7 +24,7 @@ import (
 	"new-api-usdt/internal/usdt"
 )
 
-const Version = "0.1.12"
+const Version = "0.1.13"
 
 // addressBatch keeps the topic filter inside every provider's limit (TRON
 // accepts at most 1000 options per topic).
@@ -122,7 +122,7 @@ func (s *Service) CheckChains(ctx context.Context) error {
 
 func (s *Service) Run(ctx context.Context) {
 	var wg sync.WaitGroup
-	wg.Go(func() { s.every(ctx, 30*time.Second, "sync", s.syncState) })
+	wg.Go(func() { s.every(ctx, s.cfg.SyncInterval, "sync", s.syncState) })
 	wg.Go(func() { s.every(ctx, 5*time.Second, "notify", s.notify) })
 	wg.Go(func() { s.every(ctx, time.Minute, "heartbeat", s.heartbeat) })
 	wg.Go(func() { s.every(ctx, time.Minute, "gas-alerts", s.checkGasAlerts) })
