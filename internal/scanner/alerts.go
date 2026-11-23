@@ -298,12 +298,20 @@ func (s *Service) dailySummary(ctx context.Context) error {
 		return err
 	}
 	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	count, total, err := s.store.SweepStatsSince(ctx, midnight)
+	sweepCount, sweepTotal, err := s.store.SweepStatsSince(ctx, midnight)
+	if err != nil {
+		return err
+	}
+	depositCount, depositTotal, err := s.store.DepositStatsSince(ctx, midnight)
 	if err != nil {
 		return err
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "统计日期：%s\n\n", now.Format("2006-01-02"))
+	fmt.Fprintf(&b, "今日充值（链上检测）：%d 笔，合计 %s USDT\n",
+		depositCount, decimal.NewFromFloat(depositTotal).StringFixed(2))
+	fmt.Fprintf(&b, "今日归集：%d 笔，合计 %s USDT\n\n",
+		sweepCount, decimal.NewFromFloat(sweepTotal).StringFixed(2))
 	chains := s.remoteChains()
 	if len(chains) == 0 {
 		chains = map[string]newapi.Chain{}
@@ -341,9 +349,14 @@ func (s *Service) dailySummary(ctx context.Context) error {
 				}
 			}
 		}
+		if s.cfg.SweepMode == config.SweepModeGlobal {
+			if pending, err := s.store.PendingAmount(ctx, chainID); err == nil {
+				fmt.Fprintf(&b, "  未归集累计：%s USDT（全站）\n", usdt.FormatCoin(pending))
+			}
+		}
 	}
-	fmt.Fprintf(&b, "\n今日归集：%d 笔，合计 %s USDT", count, decimal.NewFromFloat(total).StringFixed(2))
-	subject := fmt.Sprintf("[USDT 日报] %s 归集 %d 笔", now.Format("2006-01-02"), count)
+	subject := fmt.Sprintf("[USDT 日报] %s 充值 %d 笔 / %s USDT",
+		now.Format("2006-01-02"), depositCount, decimal.NewFromFloat(depositTotal).StringFixed(2))
 	if err := s.alerts.Alert(ctx, key, subject, b.String()); err != nil {
 		return err
 	}

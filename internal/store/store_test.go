@@ -164,3 +164,26 @@ func TestAddDepositReportsOnlyNewRows(t *testing.T) {
 		t.Fatal("re-scan must not report a new row (would double count the pending total)")
 	}
 }
+func TestDepositStatsSince(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	for i, amt := range []string{"15", "20.5", "3"} {
+		if _, err := st.AddDeposit(ctx, Deposit{Chain: "polygon", TxHash: "0x" + string(rune('a'+i)), LogIndex: 0, Address: "0xaa", Amount: amt, Block: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count, total, err := st.DepositStatsSince(ctx, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 3 || total != 38.5 {
+		t.Fatalf("count=%d total=%v, want 3 / 38.5", count, total)
+	}
+	if count, _, _ := st.DepositStatsSince(ctx, time.Now().Add(time.Hour)); count != 0 {
+		t.Fatalf("future window should be empty")
+	}
+}

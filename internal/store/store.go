@@ -502,3 +502,20 @@ func (s *Store) SubPending(ctx context.Context, chain string, amount decimal.Dec
 	}
 	return s.SetPending(ctx, chain, next)
 }
+
+
+// DepositStatsSince counts detected transfers and sums their USDT amount since
+// a point in time, for the daily reconciliation mail.
+func (s *Store) DepositStatsSince(ctx context.Context, since time.Time) (int, float64, error) {
+	var (
+		count int
+		total sql.NullFloat64
+	)
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*), SUM(CAST(amount AS REAL)) FROM deposits WHERE created_at >= ?`,
+		since.Unix()).Scan(&count, &total)
+	if err != nil {
+		return 0, 0, err
+	}
+	return count, total.Float64, nil
+}
