@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/shopspring/decimal"
 	_ "modernc.org/sqlite"
 )
 
@@ -66,6 +67,10 @@ CREATE INDEX IF NOT EXISTS idx_sweeps_status ON sweeps (chain, status);
 CREATE TABLE IF NOT EXISTS alerts (
 	key     TEXT PRIMARY KEY,
 	sent_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS chain_pending (
+	chain  TEXT PRIMARY KEY,
+	amount TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS chain_meta (
 	chain           TEXT PRIMARY KEY,
@@ -176,22 +181,32 @@ type Deposit struct {
 	Attempts int
 }
 
-// AddDeposit queues a report and flags the wallet for a sweep check.
-func (s *Store) AddDeposit(ctx context.Context, d Deposit) error {
+// AddDeposit queues a report and flags the wallet for a sweep check. The bool
+// reports whether the row was new, so callers can update ledger totals without
+// double counting a re-scanned transfer.
+func (s *Store) AddDeposit(ctx context.Context, d Deposit) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deposits (chain, tx_hash, log_index, address, amount, block, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, d.Chain, d.TxHash, d.LogIndex, d.Address, d.Amount, int64(d.Block), now()); err != nil {
-		return err
+	res, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deposits (chain, tx_hash, log_index, address, amount, block, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, d.Chain, d.TxHash, d.LogIndex, d.Address, d.Amount, int64(d.Block), now())
+	if err != nil {
+		return false, err
+	}
+	inserted, err := res.RowsAffected()
+	if err != nil {
+		return false, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO wallets (chain, address, needs_check) VALUES (?, ?, 1)
 		ON CONFLICT (chain, address) DO UPDATE SET needs_check = 1`, d.Chain, d.Address); err != nil {
-		return err
+		return false, err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return inserted > 0, nil
 }
 
 func (s *Store) DueDeposits(ctx context.Context, limit int) ([]Deposit, error) {
@@ -438,4 +453,52 @@ func (s *Store) FlagAllWallets(ctx context.Context, chain string) (int64, error)
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+
+// AddPending adds a detected (not yet swept) amount to a chain's total.
+func (s *Store) AddPending(ctx context.Context, chain string, amount decimal.Decimal) error {
+	cur, err := s.PendingAmount(ctx, chain)
+	if err != nil {
+		return err
+	}
+	return s.SetPending(ctx, chain, cur.Add(amount))
+}
+
+// PendingAmount returns the accumulated un-swept amount for a chain.
+func (s *Store) PendingAmount(ctx context.Context, chain string) (decimal.Decimal, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx, `SELECT amount FROM chain_pending WHERE chain = ?`, chain).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return decimal.Zero, nil
+	}
+	if err != nil {
+		return decimal.Zero, err
+	}
+	d, err := decimal.NewFromString(raw)
+	if err != nil {
+		return decimal.Zero, nil
+	}
+	return d, nil
+}
+
+// SetPending overwrites the un-swept total for a chain.
+func (s *Store) SetPending(ctx context.Context, chain string, amount decimal.Decimal) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO chain_pending (chain, amount) VALUES (?, ?)
+		ON CONFLICT (chain) DO UPDATE SET amount = excluded.amount`, chain, amount.String())
+	return err
+}
+
+// SubPending removes a swept amount, flooring at zero so a restart or a manual
+// sweep cannot drive the total negative.
+func (s *Store) SubPending(ctx context.Context, chain string, amount decimal.Decimal) error {
+	cur, err := s.PendingAmount(ctx, chain)
+	if err != nil {
+		return err
+	}
+	next := cur.Sub(amount)
+	if next.Sign() < 0 {
+		next = decimal.Zero
+	}
+	return s.SetPending(ctx, chain, next)
 }

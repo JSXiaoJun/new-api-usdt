@@ -30,6 +30,15 @@ type Chain struct {
 	MaxGasPriceWei uint64
 }
 
+const (
+	// SweepModePerAddress sweeps an address when its own balance reaches the
+	// dashboard threshold (default, backward compatible).
+	SweepModePerAddress = "per_address"
+	// SweepModeGlobal treats the dashboard threshold as the total un-swept
+	// amount across every address on the chain.
+	SweepModeGlobal = "global"
+)
+
 type Config struct {
 	NewAPIURL     string
 	ScannerSecret string
@@ -39,6 +48,7 @@ type Config struct {
 	// SyncInterval is how often we ask new-api for new addresses/thresholds.
 	SyncInterval time.Duration
 	SweepEnabled  bool
+	SweepMode     string
 	Chains        map[string]Chain
 	// TRON HTTP API (triggersmartcontract / broadcasttransaction) for sweeps.
 	TronAPI      string
@@ -102,6 +112,10 @@ func Load() (*Config, error) {
 		TronAPIKey:    env("TRON_API_KEY", ""),
 		ListenAddr:    env("LISTEN_ADDR", "127.0.0.1:9180"),
 		Chains:        map[string]Chain{},
+	}
+	cfg.SweepMode = strings.ToLower(env("SWEEP_MODE", SweepModePerAddress))
+	if cfg.SweepMode != SweepModePerAddress && cfg.SweepMode != SweepModeGlobal {
+		return nil, errors.New("SWEEP_MODE must be per_address or global")
 	}
 	if cfg.NewAPIURL == "" || cfg.ScannerSecret == "" {
 		return nil, errors.New("NEWAPI_URL and SCANNER_SECRET are required")

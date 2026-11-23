@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 func TestAlertStateRoundtrip(t *testing.T) {
@@ -84,7 +86,7 @@ func TestFlagAllWalletsRequeuesChainOnly(t *testing.T) {
 	}
 	// Simulate a deposit on each wallet, then the sweeper dismissing them.
 	for _, w := range []struct{ chain, addr string }{{"polygon", "0xaa"}, {"polygon", "0xbb"}, {"bsc", "0xcc"}} {
-		if err := st.AddDeposit(ctx, Deposit{Chain: w.chain, TxHash: "0x" + w.addr, LogIndex: 0, Address: w.addr, Amount: "10", Block: 1}); err != nil {
+		if _, err := st.AddDeposit(ctx, Deposit{Chain: w.chain, TxHash: "0x" + w.addr, LogIndex: 0, Address: w.addr, Amount: "10", Block: 1}); err != nil {
 			t.Fatal(err)
 		}
 		if err := st.MarkWalletChecked(ctx, w.chain, w.addr, false); err != nil {
@@ -104,5 +106,61 @@ func TestFlagAllWalletsRequeuesChainOnly(t *testing.T) {
 	}
 	if other, _ := st.WalletsToCheck(ctx, "bsc", 10); len(other) != 0 {
 		t.Fatalf("bsc wallets should stay dismissed, got %v", other)
+	}
+}
+func TestPendingTotalAccounting(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+
+	cur, err := st.PendingAmount(ctx, "polygon")
+	if err != nil || !cur.IsZero() {
+		t.Fatalf("initial pending = %v err=%v", cur, err)
+	}
+	if err := st.AddPending(ctx, "polygon", decimal.RequireFromString("15")); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddPending(ctx, "polygon", decimal.RequireFromString("10.5")); err != nil {
+		t.Fatal(err)
+	}
+	cur, _ = st.PendingAmount(ctx, "polygon")
+	if !cur.Equal(decimal.RequireFromString("25.5")) {
+		t.Fatalf("pending = %s, want 25.5", cur)
+	}
+	// Sweeping more than the ledger holds must floor at zero.
+	if err := st.SubPending(ctx, "polygon", decimal.RequireFromString("40")); err != nil {
+		t.Fatal(err)
+	}
+	cur, _ = st.PendingAmount(ctx, "polygon")
+	if cur.Sign() != 0 {
+		t.Fatalf("pending should floor at zero, got %s", cur)
+	}
+	// Chains are independent.
+	if other, _ := st.PendingAmount(ctx, "bsc"); !other.IsZero() {
+		t.Fatalf("bsc pending should be zero, got %s", other)
+	}
+}
+func TestAddDepositReportsOnlyNewRows(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	d := Deposit{Chain: "polygon", TxHash: "0xabc", LogIndex: 0, Address: "0xaa", Amount: "10", Block: 1}
+
+	inserted, err := st.AddDeposit(ctx, d)
+	if err != nil || !inserted {
+		t.Fatalf("first insert: inserted=%v err=%v", inserted, err)
+	}
+	inserted, err = st.AddDeposit(ctx, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inserted {
+		t.Fatal("re-scan must not report a new row (would double count the pending total)")
 	}
 }

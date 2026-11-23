@@ -24,7 +24,7 @@ import (
 	"new-api-usdt/internal/usdt"
 )
 
-const Version = "0.1.13"
+const Version = "0.1.14"
 
 // addressBatch keeps the topic filter inside every provider's limit (TRON
 // accepts at most 1000 options per topic).
@@ -366,8 +366,18 @@ func (s *Service) scanRanges(ctx context.Context, id string, chain newapi.Chain,
 				Chain: id, TxHash: strings.ToLower(l.TxHash), LogIndex: int(index), Address: recipient,
 				Amount: decimal.NewFromBigInt(amount, -chain.Decimals).String(), Block: block,
 			}
-			if err := s.store.AddDeposit(ctx, d); err != nil {
-				return err
+			inserted, derr := s.store.AddDeposit(ctx, d)
+			if derr != nil {
+				return derr
+			}
+			if inserted {
+				// Only new rows feed the pending total, so a re-scan cannot
+				// inflate the global sweep ledger.
+				if amount, aerr := decimal.NewFromString(d.Amount); aerr == nil {
+					if perr := s.store.AddPending(ctx, id, amount); perr != nil {
+						slog.Warn("record pending total", "chain", id, "error", perr)
+					}
+				}
 			}
 			slog.Info("deposit seen", "chain", id, "tx", d.TxHash, "log", d.LogIndex, "to", recipient, "amount", d.Amount)
 		}
@@ -467,6 +477,17 @@ func (s *Service) sweepChain(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("invalid sweep threshold %q", chain.SweepThreshold)
 	}
+	// global mode: the dashboard threshold means "total un-swept across all
+	// addresses on this chain", not a per-address floor.
+	if s.cfg.SweepMode == config.SweepModeGlobal {
+		pending, perr := s.store.PendingAmount(ctx, id)
+		if perr != nil {
+			return perr
+		}
+		if pending.LessThan(threshold) {
+			return nil
+		}
+	}
 	thresholdRaw := threshold.Shift(chain.Decimals).BigInt()
 	factory, err := usdt.ParseHex20(chain.Factory)
 	if err != nil {
@@ -503,11 +524,23 @@ func (s *Service) sweepChain(ctx context.Context, id string) error {
 		total.Add(total, balance)
 	}
 	if len(salts) == 0 {
+		// In global mode a non-empty ledger with nothing on chain means the
+		// accounting drifted (manual sweep, reorg, restart); reset it so the
+		// chain does not keep triggering empty passes.
+		if s.cfg.SweepMode == config.SweepModeGlobal {
+			if pending, perr := s.store.PendingAmount(ctx, id); perr == nil && pending.Sign() > 0 {
+				slog.Warn("global sweep: pending total had no balances; resetting", "chain", id, "pending", pending.String())
+				_ = s.store.SetPending(ctx, id, decimal.Zero)
+			}
+		}
 		return nil
 	}
 	txHash, err := sender.Send(ctx, factory, salts, token)
 	if err != nil {
 		return fmt.Errorf("sweep %d wallets: %w", len(salts), err)
+	}
+	if s.cfg.SweepMode == config.SweepModeGlobal {
+		_ = s.store.SubPending(ctx, id, decimal.NewFromBigInt(total, -chain.Decimals))
 	}
 	if _, err := s.store.AddSweep(ctx, store.Sweep{
 		Chain: id, Address: strings.Join(swept, ","), Amount: decimal.NewFromBigInt(total, -chain.Decimals).String(), TxHash: txHash,
