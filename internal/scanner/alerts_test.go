@@ -212,3 +212,17 @@ func TestGasOutflowVerdict(t *testing.T) {
 		}
 	}
 }
+func TestFormatGasKeepsSmallAmounts(t *testing.T) {
+	cases := map[string]string{
+		"0.00002":      "0.00002",
+		"1.93":         "1.93",
+		"0":            "0",
+		"0.009994":     "0.009994",
+		"0.00000597":   "0.00000597",
+	}
+	for in, want := range cases {
+		if got := formatGas(decimal.RequireFromString(in)); got != want {
+			t.Fatalf("formatGas(%s) = %q, want %q", in, got, want)
+		}
+	}
+}

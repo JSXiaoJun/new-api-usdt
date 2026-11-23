@@ -100,7 +100,9 @@ func (s *Service) checkGasAlerts(ctx context.Context) error {
 		cost := decimal.NewFromFloat(s.cfg.SweepCost[chainID])
 		s.detectGasOutflow(ctx, chainID, local, bal, cost)
 		limit := int(s.cfg.SweepLeft[chainID])
+		floor := decimal.NewFromFloat(s.cfg.GasMin[chainID])
 		low, left := gasVerdict(bal, cost, s.cfg.GasMin[chainID], limit)
+		floorBreach := floor.Sign() > 0 && bal.LessThan(floor)
 		lowKey := "gas-low:" + chainID
 
 		if low {
@@ -108,18 +110,30 @@ func (s *Service) checkGasAlerts(ctx context.Context) error {
 			if sender := s.senders[chainID]; sender != nil {
 				addr = sender.Address()
 			}
-			subject := fmt.Sprintf("[USDT 告警] %s Gas 钱包只能再归集约 %d 次（%s %s）",
-				local.Name, left, usdt.FormatCoin(bal), local.NativeSymbol)
+			// Say which rule fired: an absolute floor and a "few sweeps left"
+			// count look very different to the operator.
+			var subject, reason string
+			if floorBreach {
+				subject = fmt.Sprintf("[USDT 告警] %s Gas 余额低于下限 %s %s（还能归集约 %d 次）",
+					local.Name, formatGas(floor), local.NativeSymbol, left)
+				reason = fmt.Sprintf("当前余额 %s %s 已跌破设定下限 %s %s。",
+					formatGas(bal), local.NativeSymbol, formatGas(floor), local.NativeSymbol)
+			} else {
+				subject = fmt.Sprintf("[USDT 告警] %s Gas 钱包只能再归集约 %d 次（%s %s）",
+					local.Name, left, formatGas(bal), local.NativeSymbol)
+				reason = fmt.Sprintf("剩余次数 %d 已低于提醒阈值 %d 次。", left, limit)
+			}
 			body := strings.Join([]string{
 				"归集会暂停，但用户资金不受影响（仍在各自合约地址里）。",
 				"",
 				"网络：" + local.Name,
 				"Gas 钱包：" + addr,
-				fmt.Sprintf("当前余额：%s %s", usdt.FormatCoin(bal), local.NativeSymbol),
-				fmt.Sprintf("按每次归集约 %s %s 估算，还能归集约 %d 次（提醒阈值 %d 次）",
-					usdt.FormatCoin(cost), local.NativeSymbol, left, limit),
+				fmt.Sprintf("当前余额：%s %s", formatGas(bal), local.NativeSymbol),
+				reason,
+				fmt.Sprintf("按每次归集约 %s %s 估算，还能归集约 %d 次（提醒阈值 %d 次，下限 %s %s）",
+					formatGas(cost), local.NativeSymbol, left, limit, formatGas(floor), local.NativeSymbol),
 				"",
-				fmt.Sprintf("充值：%s 网络 → 上面的 Gas 钱包地址（建议一次补 2~5 %s）", local.Name, local.NativeSymbol),
+				fmt.Sprintf("充值：%s 网络 → 上面的 Gas 钱包地址", local.Name),
 				fmt.Sprintf("余额不足期间每 %d 分钟重复提醒一次。", int(s.cfg.GasRepeat.Minutes())),
 			}, "\n")
 			if err := s.alerts.AlertEvery(ctx, lowKey, subject, body, s.cfg.GasRepeat); err != nil {
@@ -141,11 +155,11 @@ func (s *Service) checkGasAlerts(ctx context.Context) error {
 		if hasOK && !lastOK.Before(lastLow) {
 			continue
 		}
-		subject := fmt.Sprintf("[USDT 恢复] %s Gas 钱包已充值：%s %s（约 %d 次归集）",
-			local.Name, usdt.FormatCoin(bal), local.NativeSymbol, left)
+		subject := fmt.Sprintf("[USDT 恢复] %s Gas 钱包余额已恢复：%s %s（约 %d 次归集）",
+			local.Name, formatGas(bal), local.NativeSymbol, left)
 		body := fmt.Sprintf("网络：%s\n当前余额：%s %s\n按每次 %s %s 估算，还能归集约 %d 次。\n归集已恢复正常。",
-			local.Name, usdt.FormatCoin(bal), local.NativeSymbol,
-			usdt.FormatCoin(cost), local.NativeSymbol, left)
+			local.Name, formatGas(bal), local.NativeSymbol,
+			formatGas(cost), local.NativeSymbol, left)
 		if err := s.alerts.Alert(ctx, "gas-ok:"+chainID, subject, body); err != nil {
 			slog.Warn("gas recovery alert failed", "chain", chainID, "error", err)
 		}
@@ -481,4 +495,16 @@ func (s *Service) reconcileSweepThresholds(ctx context.Context, remote map[strin
 			}
 		}
 	}
+}
+
+// formatGas prints a native-coin amount without rounding it to "<0.01", which
+// matters for cheap chains where a sweep costs fractions of a cent.
+func formatGas(d decimal.Decimal) string {
+	s := d.StringFixed(8)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	if s == "" || s == "-" {
+		return "0"
+	}
+	return s
 }
