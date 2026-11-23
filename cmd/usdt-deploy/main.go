@@ -7,6 +7,7 @@
 //	usdt-deploy set-destination -chain polygon -rpc URL -factory 0x.. -destination 0x..   (OWNER_PRIVATE_KEY)
 //	usdt-deploy transfer-owner  -chain polygon -rpc URL -factory 0x.. -new-owner 0x..     (OWNER_PRIVATE_KEY)
 //	usdt-deploy accept-ownership -chain polygon -rpc URL -factory 0x..                    (NEW owner key)
+//	usdt-deploy send -chain bsc -rpc URL -to 0x.. -amount 0.0002                          (DEPLOYER_PRIVATE_KEY)
 //
 // The deployer key only pays deployment fees; it never controls funds. The
 // owner (your cold or hardware wallet) is the only account that can change
@@ -28,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/shopspring/decimal"
 
 	"new-api-usdt/contracts"
 	"new-api-usdt/internal/rpc"
@@ -61,6 +63,8 @@ func main() {
 		err = deployEVM(os.Args[2:])
 	case "tron":
 		err = deployTron(os.Args[2:])
+	case "send":
+		err = sendNative(os.Args[2:])
 	case "set-destination", "transfer-owner", "accept-ownership", "balance":
 		err = factoryAdmin(os.Args[1], os.Args[2:])
 	default:
@@ -137,6 +141,14 @@ func hasCode(ctx context.Context, client *rpc.Client, address string) (bool, err
 }
 
 func sendEVM(ctx context.Context, client *rpc.Client, chainID uint64, key *ecdsa.PrivateKey, to common.Address, data []byte) (string, error) {
+	return sendValue(ctx, client, chainID, key, to, nil, data)
+}
+
+// sendValue signs and broadcasts a transaction, optionally moving native coin.
+func sendValue(ctx context.Context, client *rpc.Client, chainID uint64, key *ecdsa.PrivateKey, to common.Address, value *big.Int, data []byte) (string, error) {
+	if value == nil {
+		value = big.NewInt(0)
+	}
 	from := strings.ToLower(crypto.PubkeyToAddress(key.PublicKey).Hex())
 	price, err := client.GasPrice(ctx)
 	if err != nil {
@@ -151,7 +163,7 @@ func sendEVM(ctx context.Context, client *rpc.Client, chainID uint64, key *ecdsa
 	if err != nil {
 		return "", err
 	}
-	tx := types.NewTx(&types.LegacyTx{Nonce: nonce, GasPrice: price, Gas: gas * 5 / 4, To: &to, Data: data})
+	tx := types.NewTx(&types.LegacyTx{Nonce: nonce, GasPrice: price, Gas: gas * 5 / 4, To: &to, Value: value, Data: data})
 	signed, err := types.SignTx(tx, types.NewEIP155Signer(new(big.Int).SetUint64(chainID)), key)
 	if err != nil {
 		return "", err
@@ -327,4 +339,50 @@ func deployTron(args []string) error {
 	return probe(ctx, client, chain, factory, func(data []byte) (string, error) {
 		return tc.Trigger(ctx, factory, "deployWallet(bytes32)", data, 100_000_000)
 	})
+}
+
+// sendNative moves native coin (gas money) from the deployer wallet to another
+// address, so a single exchange withdrawal can fund the owner keys too.
+func sendNative(args []string) error {
+	fs := flag.NewFlagSet("send", flag.ExitOnError)
+	chainID := fs.String("chain", "", "bsc | arbitrum | polygon")
+	rpcURL := fs.String("rpc", "", "RPC URL of the chain")
+	toFlag := fs.String("to", "", "recipient address")
+	amountFlag := fs.String("amount", "", "amount of native coin, e.g. 0.0002")
+	_ = fs.Parse(args)
+	chain, ok := usdt.Lookup(*chainID)
+	if !ok || chain.Kind != usdt.KindEVM {
+		return errors.New("-chain must be bsc, arbitrum or polygon")
+	}
+	if *rpcURL == "" {
+		return errors.New("-rpc is required")
+	}
+	to, err := usdt.ParseHex20(*toFlag)
+	if err != nil {
+		return fmt.Errorf("-to: %w", err)
+	}
+	amount, err := decimal.NewFromString(*amountFlag)
+	if err != nil || !amount.IsPositive() {
+		return errors.New("-amount must be a positive number")
+	}
+	key, err := loadKey("DEPLOYER_PRIVATE_KEY")
+	if err != nil {
+		return err
+	}
+	client, err := rpc.New(*rpcURL, nil)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	hash, err := sendValue(ctx, client, chain.ChainID, key, to, amount.Shift(18).BigInt(), nil)
+	if err != nil {
+		return err
+	}
+	fmt.Println("from        :", strings.ToLower(from.Hex()))
+	fmt.Println("to          :", usdt.DisplayAddress(chain, to))
+	fmt.Printf("amount      : %s %s\n", amount.String(), chain.NativeSymbol)
+	fmt.Println("tx          :", hash)
+	return nil
 }
